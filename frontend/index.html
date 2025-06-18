@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Football ChatBot - Analista de Futebol</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="style.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <div class="logo">
+                    <i class="fas fa-futbol"></i>
+                    <h1>Football ChatBot</h1>
+                </div>
+                <div class="status">
+                    <span class="status-indicator online" id="statusIndicator"></span>
+                    <span id="requestsCount">Requests: 0/100</span>
+                </div>
+            </div>
+        </header>
+
+        <div class="main-content">
+            <!-- Sidebar with Quick Stats -->
+            <aside class="sidebar">
+                <div class="quick-stats">
+                    <h3><i class="fas fa-chart-bar"></i> Liga Portugal</h3>
+                    <div class="stats-loading" id="quickStatsLoading">
+                        <i class="fas fa-spinner fa-spin"></i> Carregando...
+                    </div>
+                    <div class="stats-content" id="quickStatsContent" style="display: none;">
+                        <!-- Stats will be loaded here -->
+                    </div>
+                </div>
+
+                <div class="popular-teams">
+                    <h3><i class="fas fa-star"></i> Equipas Populares</h3>
+                    <div class="team-buttons">
+                        <button class="team-btn" onclick="askAboutTeam('benfica')">
+                            <i class="fas fa-futbol"></i> Benfica
+                        </button>
+                        <button class="team-btn" onclick="askAboutTeam('porto')">
+                            <i class="fas fa-futbol"></i> Porto
+                        </button>
+                        <button class="team-btn" onclick="askAboutTeam('sporting')">
+                            <i class="fas fa-futbol"></i> Sporting
+                        </button>
+                        <button class="team-btn" onclick="askAboutTeam('braga')">
+                            <i class="fas fa-futbol"></i> SC Braga
+                        </button>
+                    </div>
+                </div>
+
+                <div class="quick-questions">
+                    <h3><i class="fas fa-question-circle"></i> Perguntas Rápidas</h3>
+                    <div class="question-buttons">
+                        <button class="question-btn" onclick="askQuestion('Classificação da Liga Portugal')">
+                            <i class="fas fa-trophy"></i> Classificação
+                        </button>
+                        <button class="question-btn" onclick="askQuestion('Quem está em primeiro lugar?')">
+                            <i class="fas fa-crown"></i> Líder
+                        </button>
+                        <button class="question-btn" onclick="askQuestion('Benfica vs Porto histórico')">
+                            <i class="fas fa-fire"></i> Clássico
+                        </button>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Chat Area -->
+            <main class="chat-area">
+                <div class="chat-container">
+                    <div class="chat-messages" id="chatMessages">
+                        <div class="message bot-message">
+                            <div class="message-avatar">
+                                <i class="fas fa-robot"></i>
+                            </div>
+                            <div class="message-content">
+                                <div class="message-text">
+                                    <p>🤖 <strong>Olá! Sou o teu assistente de futebol português!</strong> ⚽</p>
+                                    <p>Posso ajudar-te com:</p>
+                                    <ul>
+                                        <li>🏆 Classificações das ligas</li>
+                                        <li>📊 Estatísticas de equipas</li>
+                                        <li>📅 Jogos recentes</li>
+                                        <li>⚔️ Confrontos diretos</li>
+                                    </ul>
+                                    <p>Faz a tua pergunta ou usa os botões ao lado! 😊</p>
+                                </div>
+                                <div class="message-time">Agora mesmo</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="chat-input-container">
+                        <div class="chat-input">
+                            <input type="text" 
+                                   id="messageInput" 
+                                   placeholder="Pergunta algo sobre futebol português..."
+                                   maxlength="500">
+                            <button id="sendButton" onclick="sendMessage()">
+                                <i class="fas fa-paper-plane"></i>
+                            </button>
+                        </div>
+                        <div class="input-suggestions">
+                            <button class="suggestion" onclick="askQuestion('Como está o Benfica?')">
+                                Como está o Benfica?
+                            </button>
+                            <button class="suggestion" onclick="askQuestion('Últimos jogos do Porto')">
+                                Últimos jogos do Porto
+                            </button>
+                            <button class="suggestion" onclick="askQuestion('Classificação atual')">
+                                Classificação atual
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Loading Modal -->
+    <div class="modal" id="loadingModal">
+        <div class="modal-content">
+            <div class="loading-spinner">
+                <i class="fas fa-futbol fa-spin"></i>
+            </div>
+            <p>Analisando dados de futebol...</p>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="chat.js"></script>
+    <script>
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeApp();
+            setupEventListeners();
+        });
+
+        // Allow Enter key to send message
+        document.getElementById('messageInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+        // Auto-resize input
+        document.getElementById('messageInput').addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = (this.scrollHeight) + 'px';
+        });
+    </script>
+</body>
+</html>
