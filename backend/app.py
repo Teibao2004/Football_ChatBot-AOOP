@@ -51,17 +51,30 @@ def chat():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/leagues')
-def get_leagues():
-    """Obter ligas disponíveis"""
+def get_all_leagues():
+    """Obter todas as ligas disponíveis"""
     try:
-        leagues = football_manager.get_leagues("Portugal")
+        available_leagues = football_manager.get_available_leagues()
+        return jsonify({
+            'leagues': available_leagues,
+            'requests_used': football_manager.requests_made
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/leagues/<country>')
+def get_leagues_by_country(country):
+    """Obter ligas de um país específico"""
+    try:
+        leagues = football_manager.get_leagues(country)
         if leagues:
             return jsonify({
+                'country': country,
                 'leagues': leagues,
                 'requests_used': football_manager.requests_made
             })
         else:
-            return jsonify({'error': 'Não foi possível obter ligas'}), 500
+            return jsonify({'error': f'Não foi possível obter ligas de {country}'}), 500
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -73,8 +86,40 @@ def get_standings(league_id):
         standings = football_manager.get_standings(league_id, season)
         
         if standings:
+            # Processar dados para resposta mais limpa
+            processed_standings = []
+            if standings[0].get('league', {}).get('standings'):
+                table = standings[0]['league']['standings'][0]
+                league_info = standings[0]['league']
+                
+                for team_data in table:
+                    processed_standings.append({
+                        'position': team_data['rank'],
+                        'team': {
+                            'id': team_data['team']['id'],
+                            'name': team_data['team']['name'],
+                            'logo': team_data['team']['logo']
+                        },
+                        'points': team_data['points'],
+                        'played': team_data['all']['played'],
+                        'won': team_data['all']['win'],
+                        'drawn': team_data['all']['draw'],
+                        'lost': team_data['all']['lose'],
+                        'goals_for': team_data['all']['goals']['for'],
+                        'goals_against': team_data['all']['goals']['against'],
+                        'goal_difference': team_data['goalsDiff'],
+                        'form': team_data.get('form', '')
+                    })
+            
             return jsonify({
-                'standings': standings,
+                'league': {
+                    'id': league_info['id'],
+                    'name': league_info['name'],
+                    'country': league_info['country'],
+                    'season': league_info['season'],
+                    'logo': league_info['logo']
+                },
+                'standings': processed_standings,
                 'requests_used': football_manager.requests_made
             })
         else:
@@ -92,8 +137,48 @@ def get_team_stats(team_id):
         stats = football_manager.get_team_statistics(team_id, league_id, season)
         
         if stats:
+            # Processar estatísticas para resposta mais limpa
+            processed_stats = {
+                'team': {
+                    'id': stats['team']['id'],
+                    'name': stats['team']['name'],
+                    'logo': stats['team']['logo']
+                },
+                'league': {
+                    'id': stats['league']['id'],
+                    'name': stats['league']['name'],
+                    'season': stats['league']['season']
+                },
+                'fixtures': {
+                    'played': stats['fixtures']['played']['total'],
+                    'wins': stats['fixtures']['wins']['total'],
+                    'draws': stats['fixtures']['draws']['total'],
+                    'losses': stats['fixtures']['loses']['total']
+                },
+                'goals': {
+                    'for': stats['goals']['for']['total']['total'],
+                    'against': stats['goals']['against']['total']['total'],
+                    'average_for': round(stats['goals']['for']['average']['total'], 2) if stats['goals']['for']['average']['total'] else 0,
+                    'average_against': round(stats['goals']['against']['average']['total'], 2) if stats['goals']['against']['average']['total'] else 0
+                },
+                'biggest': {
+                    'wins': stats['biggest']['wins'],
+                    'loses': stats['biggest']['loses']
+                },
+                'clean_sheets': {
+                    'home': stats['clean_sheet']['home'],
+                    'away': stats['clean_sheet']['away'],
+                    'total': stats['clean_sheet']['total']
+                },
+                'failed_to_score': {
+                    'home': stats['failed_to_score']['home'],
+                    'away': stats['failed_to_score']['away'],
+                    'total': stats['failed_to_score']['total']
+                }
+            }
+            
             return jsonify({
-                'statistics': stats,
+                'statistics': processed_stats,
                 'requests_used': football_manager.requests_made
             })
         else:
@@ -109,8 +194,44 @@ def get_team_matches(team_id):
         matches = football_manager.get_recent_matches(team_id, last)
         
         if matches:
+            # Processar jogos para resposta mais limpa
+            processed_matches = []
+            for match in matches:
+                processed_matches.append({
+                    'fixture': {
+                        'id': match['fixture']['id'],
+                        'date': match['fixture']['date'],
+                        'status': match['fixture']['status']['long']
+                    },
+                    'league': {
+                        'id': match['league']['id'],
+                        'name': match['league']['name'],
+                        'logo': match['league']['logo']
+                    },
+                    'teams': {
+                        'home': {
+                            'id': match['teams']['home']['id'],
+                            'name': match['teams']['home']['name'],
+                            'logo': match['teams']['home']['logo']
+                        },
+                        'away': {
+                            'id': match['teams']['away']['id'],
+                            'name': match['teams']['away']['name'],
+                            'logo': match['teams']['away']['logo']
+                        }
+                    },
+                    'goals': {
+                        'home': match['goals']['home'],
+                        'away': match['goals']['away']
+                    },
+                    'score': {
+                        'halftime': match['score']['halftime'],
+                        'fulltime': match['score']['fulltime']
+                    }
+                })
+            
             return jsonify({
-                'matches': matches,
+                'matches': processed_matches,
                 'requests_used': football_manager.requests_made
             })
         else:
@@ -125,12 +246,239 @@ def get_head_to_head(team1_id, team2_id):
         h2h = football_manager.get_head_to_head(team1_id, team2_id)
         
         if h2h:
+            # Processar histórico para resposta mais limpa
+            processed_h2h = []
+            for match in h2h:
+                processed_h2h.append({
+                    'fixture': {
+                        'id': match['fixture']['id'],
+                        'date': match['fixture']['date']
+                    },
+                    'league': {
+                        'id': match['league']['id'],
+                        'name': match['league']['name']
+                    },
+                    'teams': {
+                        'home': {
+                            'id': match['teams']['home']['id'],
+                            'name': match['teams']['home']['name']
+                        },
+                        'away': {
+                            'id': match['teams']['away']['id'],
+                            'name': match['teams']['away']['name']
+                        }
+                    },
+                    'goals': {
+                        'home': match['goals']['home'],
+                        'away': match['goals']['away']
+                    }
+                })
+            
             return jsonify({
-                'head_to_head': h2h,
+                'head_to_head': processed_h2h,
                 'requests_used': football_manager.requests_made
             })
         else:
             return jsonify({'error': 'Não foi possível obter histórico'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/league/<int:league_id>/teams')
+def get_league_teams(league_id):
+    """Obter equipas de uma liga"""
+    try:
+        season = request.args.get('season', 2024, type=int)
+        teams = football_manager.get_teams_by_league(league_id, season)
+        
+        if teams:
+            # Processar equipas para resposta mais limpa
+            processed_teams = []
+            for team_data in teams:
+                processed_teams.append({
+                    'id': team_data['team']['id'],
+                    'name': team_data['team']['name'],
+                    'code': team_data['team']['code'],
+                    'country': team_data['team']['country'],
+                    'founded': team_data['team']['founded'],
+                    'logo': team_data['team']['logo'],
+                    'venue': {
+                        'id': team_data['venue']['id'],
+                        'name': team_data['venue']['name'],
+                        'capacity': team_data['venue']['capacity']
+                    }
+                })
+            
+            return jsonify({
+                'teams': processed_teams,
+                'requests_used': football_manager.requests_made
+            })
+        else:
+            return jsonify({'error': 'Não foi possível obter equipas'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/league/<int:league_id>/topscorers')
+def get_top_scorers(league_id):
+    """Obter melhores marcadores de uma liga"""
+    try:
+        season = request.args.get('season', 2024, type=int)
+        scorers = football_manager.get_top_scorers(league_id, season)
+        
+        if scorers:
+            # Processar marcadores para resposta mais limpa
+            processed_scorers = []
+            for scorer in scorers[:20]:  # Top 20
+                processed_scorers.append({
+                    'player': {
+                        'id': scorer['player']['id'],
+                        'name': scorer['player']['name'],
+                        'photo': scorer['player']['photo']
+                    },
+                    'team': {
+                        'id': scorer['statistics'][0]['team']['id'],
+                        'name': scorer['statistics'][0]['team']['name'],
+                        'logo': scorer['statistics'][0]['team']['logo']
+                    },
+                    'goals': scorer['statistics'][0]['goals']['total'],
+                    'assists': scorer['statistics'][0]['goals']['assists'],
+                    'games': scorer['statistics'][0]['games']['appearences']
+                })
+            
+            return jsonify({
+                'top_scorers': processed_scorers,
+                'requests_used': football_manager.requests_made
+            })
+        else:
+            return jsonify({'error': 'Não foi possível obter marcadores'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/fixtures/live')
+def get_live_fixtures():
+    """Obter jogos ao vivo"""
+    try:
+        league_id = request.args.get('league', type=int)
+        fixtures = football_manager.get_live_fixtures(league_id)
+        
+        if fixtures is not None:
+            # Processar jogos ao vivo
+            processed_fixtures = []
+            for fixture in fixtures:
+                processed_fixtures.append({
+                    'fixture': {
+                        'id': fixture['fixture']['id'],
+                        'date': fixture['fixture']['date'],
+                        'status': fixture['fixture']['status'],
+                        'elapsed': fixture['fixture']['status']['elapsed']
+                    },
+                    'league': {
+                        'id': fixture['league']['id'],
+                        'name': fixture['league']['name'],
+                        'logo': fixture['league']['logo']
+                    },
+                    'teams': {
+                        'home': {
+                            'id': fixture['teams']['home']['id'],
+                            'name': fixture['teams']['home']['name'],
+                            'logo': fixture['teams']['home']['logo']
+                        },
+                        'away': {
+                            'id': fixture['teams']['away']['id'],
+                            'name': fixture['teams']['away']['name'],
+                            'logo': fixture['teams']['away']['logo']
+                        }
+                    },
+                    'goals': {
+                        'home': fixture['goals']['home'],
+                        'away': fixture['goals']['away']
+                    }
+                })
+            
+            return jsonify({
+                'live_fixtures': processed_fixtures,
+                'requests_used': football_manager.requests_made
+            })
+        else:
+            return jsonify({'error': 'Não foi possível obter jogos ao vivo'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/fixtures/<date>')
+def get_fixtures_by_date(date):
+    """Obter jogos por data (YYYY-MM-DD)"""
+    try:
+        league_id = request.args.get('league', type=int)
+        fixtures = football_manager.get_fixtures_by_date(date, league_id)
+        
+        if fixtures:
+            # Processar jogos
+            processed_fixtures = []
+            for fixture in fixtures:
+                processed_fixtures.append({
+                    'fixture': {
+                        'id': fixture['fixture']['id'],
+                        'date': fixture['fixture']['date'],
+                        'status': fixture['fixture']['status']
+                    },
+                    'league': {
+                        'id': fixture['league']['id'],
+                        'name': fixture['league']['name'],
+                        'logo': fixture['league']['logo']
+                    },
+                    'teams': {
+                        'home': {
+                            'id': fixture['teams']['home']['id'],
+                            'name': fixture['teams']['home']['name'],
+                            'logo': fixture['teams']['home']['logo']
+                        },
+                        'away': {
+                            'id': fixture['teams']['away']['id'],
+                            'name': fixture['teams']['away']['name'],
+                            'logo': fixture['teams']['away']['logo']
+                        }
+                    },
+                    'goals': {
+                        'home': fixture['goals']['home'],
+                        'away': fixture['goals']['away']
+                    }
+                })
+            
+            return jsonify({
+                'date': date,
+                'fixtures': processed_fixtures,
+                'requests_used': football_manager.requests_made
+            })
+        else:
+            return jsonify({'error': f'Não foi possível obter jogos para {date}'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/search/team/<team_name>')
+def search_team(team_name):
+    """Procurar equipa por nome"""
+    try:
+        teams = football_manager.search_team(team_name)
+        
+        if teams:
+            # Processar resultados da pesquisa
+            processed_teams = []
+            for team_data in teams[:10]:  # Limitar a 10 resultados
+                processed_teams.append({
+                    'id': team_data['team']['id'],
+                    'name': team_data['team']['name'],
+                    'code': team_data['team']['code'],
+                    'country': team_data['team']['country'],
+                    'logo': team_data['team']['logo'],
+                    'venue': team_data['venue']['name'] if team_data['venue'] else None
+                })
+            
+            return jsonify({
+                'search_term': team_name,
+                'results': processed_teams,
+                'requests_used': football_manager.requests_made
+            })
+        else:
+            return jsonify({'error': f'Não foi possível encontrar equipas com "{team_name}"'}), 500
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -142,21 +490,42 @@ def get_status():
         'requests_used': football_manager.requests_made,
         'requests_limit': 100,
         'cache_entries': len(football_manager.cache),
+        'available_leagues': len(football_manager.get_available_leagues()),
         'timestamp': datetime.now().isoformat()
     })
 
 @app.route('/api/popular-teams')
 def get_popular_teams():
-    """Obter equipas populares portuguesas"""
-    teams = [
-        {'id': 211, 'name': 'Benfica', 'league': 94},
-        {'id': 212, 'name': 'Porto', 'league': 94},
-        {'id': 228, 'name': 'Sporting CP', 'league': 94},
-        {'id': 230, 'name': 'Vitória SC', 'league': 94},
-        {'id': 227, 'name': 'SC Braga', 'league': 94}
-    ]
-    
-    return jsonify({'teams': teams})
+    """Obter equipas populares por liga"""
+    try:
+        league_id = request.args.get('league', type=int)
+        
+        if league_id:
+            teams = football_manager.get_popular_teams_by_league(league_id)
+            return jsonify({
+                'league_id': league_id,
+                'teams': teams
+            })
+        else:
+            # Retornar todas as equipas populares
+            all_popular_teams = {}
+            for league_id, teams in football_manager.popular_teams.items():
+                league_info = None
+                for league_key, league_data in football_manager.available_leagues.items():
+                    if league_data['id'] == league_id:
+                        league_info = league_data
+                        break
+                
+                if league_info:
+                    all_popular_teams[league_info['name']] = {
+                        'league_id': league_id,
+                        'league_info': league_info,
+                        'teams': teams
+                    }
+            
+            return jsonify({'popular_teams': all_popular_teams})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.errorhandler(404)
 def not_found(error):
@@ -169,6 +538,7 @@ def internal_error(error):
 if __name__ == '__main__':
     print("🚀 Iniciando Football ChatBot API...")
     print(f"📊 Requests disponíveis: {100 - football_manager.requests_made}/100")
+    print("🏆 Ligas disponíveis:", list(football_manager.get_available_leagues().keys()))
     print("💬 Acesse: http://localhost:5000")
     
     app.run(

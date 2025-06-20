@@ -1,4 +1,4 @@
-// Football ChatBot - JavaScript File
+// Football ChatBot - JavaScript File - VERSÃO CORRIGIDA
 class FootballChatBot {
     constructor() {
         this.apiUrl = 'http://localhost:5000';
@@ -7,14 +7,28 @@ class FootballChatBot {
         this.isLoading = false;
         this.popularTeams = [];
         this.quickStats = null;
+        this.isInitialized = false;
+        this.pendingRequests = new Set(); // Para evitar requests duplicados
+        this.retryAttempts = 0;
+        this.maxRetries = 3;
         this.init();
     }
 
     init() {
-        this.loadPopularTeams();
-        this.loadQuickStats();
-        this.updateStatus();
+        if (this.isInitialized) {
+            console.log('⚠️ ChatBot já foi inicializado');
+            return;
+        }
+
+        console.log('🚀 Inicializando Football ChatBot...');
         this.setupEventListeners();
+        
+        // Carregar dados com delay para evitar sobrecarga
+        setTimeout(() => this.loadPopularTeams(), 100);
+        setTimeout(() => this.loadQuickStats(), 500);
+        setTimeout(() => this.updateStatus(), 1000);
+        
+        this.isInitialized = true;
     }
 
     setupEventListeners() {
@@ -43,34 +57,66 @@ class FootballChatBot {
     }
 
     async loadPopularTeams() {
+        const requestKey = 'popular-teams';
+        if (this.pendingRequests.has(requestKey)) {
+            console.log('⚠️ Request para equipas populares já está pendente');
+            return;
+        }
+
+        this.pendingRequests.add(requestKey);
+        
         try {
+            console.log('📡 Carregando equipas populares...');
             const response = await fetch(`${this.apiUrl}/api/popular-teams`);
             if (response.ok) {
                 const data = await response.json();
                 this.popularTeams = data.teams;
                 console.log('✅ Equipas populares carregadas:', this.popularTeams.length);
+            } else {
+                console.error('❌ Erro HTTP ao carregar equipas:', response.status);
             }
         } catch (error) {
             console.error('❌ Erro ao carregar equipas:', error);
+        } finally {
+            this.pendingRequests.delete(requestKey);
         }
     }
 
     async loadQuickStats() {
+        const requestKey = 'standings-94';
+        if (this.pendingRequests.has(requestKey)) {
+            console.log('⚠️ Request para standings já está pendente');
+            return;
+        }
+
+        this.pendingRequests.add(requestKey);
         const statsLoading = document.getElementById('quickStatsLoading');
         const statsContent = document.getElementById('quickStatsContent');
         
         try {
+            console.log('📡 Carregando classificação da Liga Portugal...');
+            
+            // Mostrar loading
+            if (statsLoading) {
+                statsLoading.style.display = 'block';
+                statsLoading.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Carregando...';
+            }
+            
             // Carregar classificação da Liga Portugal (ID: 94)
             const response = await fetch(`${this.apiUrl}/api/standings/94?season=2024`);
             
+            console.log(`📊 Response status: ${response.status}`);
+            
             if (response.ok) {
                 const data = await response.json();
+                console.log('✅ Dados recebidos:', data);
+                
                 const standings = data.standings;
                 
                 if (statsLoading) statsLoading.style.display = 'none';
+                
                 if (statsContent && standings && standings.length > 0) {
                     const leader = standings[0];
-                    const topScorer = this.findTopScorer(standings);
                     
                     statsContent.innerHTML = `
                         <div class="stat-item">
@@ -91,20 +137,53 @@ class FootballChatBot {
                         </div>
                     `;
                     statsContent.style.display = 'block';
+                    console.log('✅ Estatísticas atualizadas no DOM');
+                } else {
+                    throw new Error('Dados de classificação inválidos');
                 }
                 
                 // Atualizar contador de requests
                 this.requestCount = data.requests_used || 0;
                 this.updateRequestCounter();
+                this.retryAttempts = 0; // Reset retry counter on success
                 
             } else {
-                throw new Error(`HTTP ${response.status}`);
+                const errorText = await response.text();
+                console.error('❌ Erro HTTP:', response.status, errorText);
+                throw new Error(`Erro ${response.status}: ${errorText}`);
             }
         } catch (error) {
             console.error('❌ Erro ao carregar estatísticas:', error);
-            if (statsLoading) {
-                statsLoading.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Erro ao carregar';
+            
+            // Retry logic
+            if (this.retryAttempts < this.maxRetries) {
+                this.retryAttempts++;
+                console.log(`🔄 Tentativa ${this.retryAttempts}/${this.maxRetries} em 3 segundos...`);
+                
+                if (statsLoading) {
+                    statsLoading.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Tentativa ${this.retryAttempts}/${this.maxRetries}...`;
+                }
+                
+                setTimeout(() => {
+                    this.pendingRequests.delete(requestKey);
+                    this.loadQuickStats();
+                }, 3000);
+                return;
             }
+            
+            // Show error after all retries failed
+            if (statsLoading) {
+                statsLoading.innerHTML = `
+                    <div style="color: #ef4444; text-align: center;">
+                        <i class="fas fa-exclamation-triangle"></i> 
+                        Erro ao carregar classificação
+                        <br>
+                        <small>Verifique a conexão com a API</small>
+                    </div>
+                `;
+            }
+        } finally {
+            this.pendingRequests.delete(requestKey);
         }
     }
 
@@ -136,6 +215,8 @@ class FootballChatBot {
         this.setLoading(true);
 
         try {
+            console.log('📤 Enviando mensagem:', message);
+            
             // Send to API
             const response = await fetch(`${this.apiUrl}/api/chat`, {
                 method: 'POST',
@@ -146,11 +227,12 @@ class FootballChatBot {
             });
 
             if (!response.ok) {
-                const errorData = await response.json();
+                const errorData = await response.json().catch(() => ({ error: 'Erro desconhecido' }));
                 throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
             }
 
             const data = await response.json();
+            console.log('📥 Resposta recebida:', data);
             
             // Update request count
             this.requestCount = data.requests_used || this.requestCount + 1;
@@ -165,6 +247,8 @@ class FootballChatBot {
             
             if (error.message.includes('Failed to fetch')) {
                 errorMessage = 'Erro de conexão. Verifique se o servidor está a funcionar.';
+            } else if (error.message.includes('500')) {
+                errorMessage = 'Erro interno do servidor. A API externa pode estar indisponível.';
             } else if (error.message) {
                 errorMessage = `Erro: ${error.message}`;
             }
@@ -272,19 +356,29 @@ class FootballChatBot {
     }
 
     async updateStatus() {
+        const requestKey = 'status';
+        if (this.pendingRequests.has(requestKey)) return;
+        
+        this.pendingRequests.add(requestKey);
+        
         try {
+            console.log('📡 Verificando status da API...');
             const response = await fetch(`${this.apiUrl}/api/status`);
             if (response.ok) {
                 const data = await response.json();
                 this.requestCount = data.requests_used || 0;
                 this.updateRequestCounter();
                 this.updateStatusIndicator(true);
+                console.log('✅ Status atualizado');
             } else {
+                console.error('❌ Erro ao verificar status:', response.status);
                 this.updateStatusIndicator(false);
             }
         } catch (error) {
             console.error('❌ Erro ao verificar status:', error);
             this.updateStatusIndicator(false);
+        } finally {
+            this.pendingRequests.delete(requestKey);
         }
     }
 
@@ -353,21 +447,27 @@ function askQuestion(question) {
     }
 }
 
-// Initialize app
+// Initialize app - COM PROTEÇÃO CONTRA MÚLTIPLAS INICIALIZAÇÕES
 function initializeApp() {
+    if (window.chatBot && window.chatBot.isInitialized) {
+        console.log('⚠️ App já foi inicializado');
+        return;
+    }
+    
     // Create chatbot instance
     window.chatBot = new FootballChatBot();
     
     // Update status every 60 seconds
     setInterval(() => {
-        window.chatBot.updateStatus();
+        if (window.chatBot) {
+            window.chatBot.updateStatus();
+        }
     }, 60000);
     
     console.log('🚀 Football ChatBot inicializado!');
     console.log('🔗 API URL:', window.chatBot.apiUrl);
 }
 
-// Additional CSS for enhanced functionality
 const additionalStyles = `
     .message-text.error {
         background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%) !important;
@@ -452,11 +552,15 @@ const additionalStyles = `
     }
 `;
 
-// Inject additional styles
+// Inject additional styles - COM PROTEÇÃO CONTRA DUPLICAÇÃO
 document.addEventListener('DOMContentLoaded', function() {
-    const style = document.createElement('style');
-    style.textContent = additionalStyles;
-    document.head.appendChild(style);
+    // Verificar se os estilos já foram injetados
+    if (!document.getElementById('chatbot-styles')) {
+        const style = document.createElement('style');
+        style.id = 'chatbot-styles';
+        style.textContent = additionalStyles;
+        document.head.appendChild(style);
+    }
     
     // Initialize the app
     initializeApp();
