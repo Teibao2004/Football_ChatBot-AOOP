@@ -23,6 +23,12 @@ if not api_key:
 football_manager = FootballDataManager(api_key)
 chatbot = FootballChatbot(api_key)
 
+# REMOVE OR COMMENT OUT THE PROBLEMATIC before_request FUNCTION
+# @app.before_request
+# def before_request():
+#     if request.content_type:
+#         request.content_type = request.content_type + '; charset=utf-8'
+
 # Limite para season 2023 por defeito 
 def get_valid_season(default=2023):
     season = request.args.get('season', type=int)

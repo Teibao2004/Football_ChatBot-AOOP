@@ -1,4 +1,4 @@
-// Football ChatBot - JavaScript File - VERSÃO CORRIGIDA
+// Football ChatBot - JavaScript File - VERSÃO ATUALIZADA PARA DADOS DA LIGA PORTUGAL
 class FootballChatBot {
     constructor() {
         this.apiUrl = 'http://localhost:5000';
@@ -103,7 +103,7 @@ class FootballChatBot {
             }
             
             // Carregar classificação da Liga Portugal (ID: 94)
-            const response = await fetch(`${this.apiUrl}/api/standings/94?season=2024`);
+            const response = await fetch(`${this.apiUrl}/api/standings/94?season=2023`);
             
             console.log(`📊 Response status: ${response.status}`);
             
@@ -111,29 +111,57 @@ class FootballChatBot {
                 const data = await response.json();
                 console.log('✅ Dados recebidos:', data);
                 
-                const standings = data.standings;
+                // Processar dados no formato correto
+                const standings = data.standings || [];
                 
                 if (statsLoading) statsLoading.style.display = 'none';
                 
                 if (statsContent && standings && standings.length > 0) {
+                    // Pegar os primeiros 3 colocados
+                    const top3 = standings.slice(0, 3);
                     const leader = standings[0];
                     
+                    // Encontrar equipa com melhor ataque
+                    const bestAttack = standings.reduce((prev, current) => 
+                        (prev.goals_for > current.goals_for) ? prev : current
+                    );
+                    
+                    // Encontrar equipa com melhor defesa
+                    const bestDefense = standings.reduce((prev, current) => 
+                        (prev.goals_against < current.goals_against) ? prev : current
+                    );
+
                     statsContent.innerHTML = `
-                        <div class="stat-item">
-                            <div class="stat-label">🏆 Líder da Liga</div>
-                            <div class="stat-value">${leader.team.name}</div>
+                        <div class="stat-section">
+                            <div class="stat-title">🏆 Top 3 Classificação</div>
+                            ${top3.map(team => `
+                                <div class="stat-item ranking-item">
+                                    <div class="position-badge">${team.position}º</div>
+                                    <div class="team-info">
+                                        <div class="team-name">${team.team.name}</div>
+                                        <div class="team-points">${team.points} pts</div>
+                                    </div>
+                                </div>
+                            `).join('')}
                         </div>
-                        <div class="stat-item">
-                            <div class="stat-label">🎯 Pontos</div>
-                            <div class="stat-value">${leader.points} pts</div>
-                        </div>
-                        <div class="stat-item">
-                            <div class="stat-label">⚽ Jogos</div>
-                            <div class="stat-value">${leader.all.played} jogados</div>
-                        </div>
-                        <div class="stat-item">
-                            <div class="stat-label">🔥 Forma</div>
-                            <div class="stat-value">${leader.form || 'N/A'}</div>
+                        
+                        <div class="stat-section">
+                            <div class="stat-item">
+                                <div class="stat-label">🎯 Líder</div>
+                                <div class="stat-value">${leader.team.name} (${leader.points} pts)</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-label">⚽ Melhor Ataque</div>
+                                <div class="stat-value">${bestAttack.team.name} (${bestAttack.goals_for})</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-label">🛡️ Melhor Defesa</div>
+                                <div class="stat-value">${bestDefense.team.name} (${bestDefense.goals_against})</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-label">🔥 Forma do Líder</div>
+                                <div class="stat-value">${this.formatForm(leader.form)}</div>
+                            </div>
                         </div>
                     `;
                     statsContent.style.display = 'block';
@@ -187,10 +215,18 @@ class FootballChatBot {
         }
     }
 
-    findTopScorer(standings) {
-        return standings.reduce((top, team) => {
-            return (team.all.goals.for > (top?.all?.goals?.for || 0)) ? team : top;
-        }, null);
+    formatForm(form) {
+        if (!form) return 'N/A';
+        
+        // Converter forma em ícones visuais
+        return form.split('').map(letter => {
+            switch(letter.toUpperCase()) {
+                case 'W': return '🟢'; // Vitória
+                case 'L': return '🔴'; // Derrota  
+                case 'D': return '🟡'; // Empate
+                default: return '⚪';
+            }
+        }).join('');
     }
 
     async sendMessage() {
@@ -396,7 +432,7 @@ class FootballChatBot {
     // Métodos para estatísticas específicas
     async getTeamStats(teamId, teamName) {
         try {
-            const response = await fetch(`${this.apiUrl}/api/team/${teamId}/stats?league=94&season=2024`);
+            const response = await fetch(`${this.apiUrl}/api/team/${teamId}/stats?league=94&season=2023`);
             if (response.ok) {
                 const data = await response.json();
                 return data.statistics;
@@ -427,7 +463,8 @@ function askAboutTeam(teamSlug) {
         'benfica': 'Como está o Benfica esta época? Mostra-me estatísticas e últimos jogos.',
         'porto': 'Quero saber sobre o FC Porto. Como estão na classificação?',
         'sporting': 'Situação atual do Sporting CP na liga. Últimos resultados?',
-        'braga': 'Como está o SC Braga? Mostra posição na tabela e estatísticas.'
+        'braga': 'Como está o SC Braga? Mostra posição na tabela e estatísticas.',
+        'vitoria': 'Como está o Vitória SC? Mostra posição na tabela e estatísticas.'
     };
     
     const question = teamQuestions[teamSlug] || `Informações sobre ${teamSlug}`;
@@ -473,6 +510,74 @@ const additionalStyles = `
         background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%) !important;
         border-left: 4px solid #ef4444 !important;
         color: #dc2626;
+    }
+    
+    .stat-section {
+        margin-bottom: 1rem;
+    }
+    
+    .stat-section:last-child {
+        margin-bottom: 0;
+    }
+    
+    .stat-title {
+        font-weight: 600;
+        color: #1e293b;
+        margin-bottom: 0.75rem;
+        font-size: 0.9rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        border-bottom: 2px solid #e2e8f0;
+        padding-bottom: 0.5rem;
+    }
+    
+    .ranking-item {
+        display: flex;
+        align-items: center;
+        padding: 0.5rem 0;
+        border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+    }
+    
+    .ranking-item:last-child {
+        border-bottom: none;
+    }
+    
+    .position-badge {
+        background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+        color: white;
+        font-weight: bold;
+        font-size: 0.8rem;
+        padding: 0.25rem 0.5rem;
+        border-radius: 50%;
+        min-width: 2rem;
+        height: 2rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-right: 0.75rem;
+    }
+    
+    .position-badge:nth-child(1) {
+        background: linear-gradient(135deg, #fbbf24, #f59e0b);
+    }
+    
+    .team-info {
+        flex: 1;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    
+    .team-name {
+        font-weight: 600;
+        color: #1e293b;
+        font-size: 0.9rem;
+    }
+    
+    .team-points {
+        font-weight: 500;
+        color: #3b82f6;
+        font-size: 0.85rem;
     }
     
     .stat-item {
