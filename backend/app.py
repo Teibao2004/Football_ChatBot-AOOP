@@ -23,6 +23,11 @@ if not api_key:
 football_manager = FootballDataManager(api_key)
 chatbot = FootballChatbot(api_key)
 
+# Limite para season 2023 por defeito 
+def get_valid_season(default=2023):
+    season = request.args.get('season', type=int)
+    return season if season and season <= 2023 else default
+
 @app.route('/')
 def index():
     """Página principal"""
@@ -82,11 +87,11 @@ def get_leagues_by_country(country):
 def get_standings(league_id):
     """Obter classificação de uma liga"""
     try:
-        season = request.args.get('season', 2024, type=int)
+        season = get_valid_season()  # Usar função para validar season
+        
         standings = football_manager.get_standings(league_id, season)
         
         if standings:
-            # Processar dados para resposta mais limpa
             processed_standings = []
             if standings[0].get('league', {}).get('standings'):
                 table = standings[0]['league']['standings'][0]
@@ -132,7 +137,7 @@ def get_team_stats(team_id):
     """Obter estatísticas de uma equipa"""
     try:
         league_id = request.args.get('league', 94, type=int)  # Default: Liga Portugal
-        season = request.args.get('season', 2024, type=int)
+        season = get_valid_season()  # Usar função para validar season
         
         stats = football_manager.get_team_statistics(team_id, league_id, season)
         
@@ -287,7 +292,7 @@ def get_head_to_head(team1_id, team2_id):
 def get_league_teams(league_id):
     """Obter equipas de uma liga"""
     try:
-        season = request.args.get('season', 2024, type=int)
+        season = get_valid_season()  # Usar função para validar season
         teams = football_manager.get_teams_by_league(league_id, season)
         
         if teams:
@@ -321,7 +326,7 @@ def get_league_teams(league_id):
 def get_top_scorers(league_id):
     """Obter melhores marcadores de uma liga"""
     try:
-        season = request.args.get('season', 2024, type=int)
+        season = get_valid_season()  # Usar função para validar season
         scorers = football_manager.get_top_scorers(league_id, season)
         
         if scorers:

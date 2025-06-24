@@ -21,8 +21,7 @@ class FootballDataManager:
         # URL correta para API-Sports (API-Football)
         self.base_url = "https://v3.football.api-sports.io"
         self.headers = {
-            "x-rapidapi-key": self.api_key,
-            "x-rapidapi-host": "v3.football.api-sports.io"
+            "x-apisports-key": self.api_key
         }
         self.cache = {}
         self.requests_made = 0
