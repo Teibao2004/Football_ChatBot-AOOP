@@ -56,18 +56,7 @@
                 <div class="popular-teams">
                     <h3><i class="fas fa-star"></i> Equipas Populares</h3>
                     <div class="team-buttons">
-                        <button class="team-btn" onclick="askAboutTeam('benfica')">
-                            <i class="fas fa-futbol"></i> Benfica
-                        </button>
-                        <button class="team-btn" onclick="askAboutTeam('porto')">
-                            <i class="fas fa-futbol"></i> Porto
-                        </button>
-                        <button class="team-btn" onclick="askAboutTeam('sporting')">
-                            <i class="fas fa-futbol"></i> Sporting
-                        </button>
-                        <button class="team-btn" onclick="askAboutTeam('braga')">
-                            <i class="fas fa-futbol"></i> SC Braga
-                        </button>
+                        <!-- Teams will be loaded here -->
                     </div>
                 </div>
 
@@ -97,13 +86,14 @@
                             </div>
                             <div class="message-content">
                                 <div class="message-text">
-                                    <p>🤖 <strong>Olá! Sou o teu assistente de futebol português!</strong> ⚽</p>
+                                    <p>🤖 <strong>Olá! Sou o teu assistente de Futebol!</strong> ⚽</p>
                                     <p>Posso ajudar-te com:</p>
                                     <ul>
                                         <li>🏆 Classificações das ligas</li>
                                         <li>📊 Estatísticas de equipas</li>
                                         <li>📅 Jogos recentes</li>
                                         <li>⚔️ Confrontos diretos</li>
+                                        <li>⚙️ Ajuda</li>
                                     </ul>
                                     <p>Faz a tua pergunta ou usa os botões ao lado! 😊</p>
                                 </div>
@@ -116,7 +106,7 @@
                         <div class="chat-input">
                             <input type="text" 
                                    id="messageInput" 
-                                   placeholder="Pergunta algo sobre futebol português..."
+                                   placeholder="Pergunta algo sobre futebol..."
                                    maxlength="500">
                             <button id="sendButton" onclick="sendMessage()">
                                 <i class="fas fa-paper-plane"></i>
