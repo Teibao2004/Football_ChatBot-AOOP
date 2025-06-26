@@ -1,10 +1,14 @@
 import requests
 import json
 import time
+import logging
 from datetime import datetime, timedelta
 import os
 from typing import Dict, List, Optional
 from dotenv import load_dotenv
+
+# Configurar logging
+logger = logging.getLogger(__name__)
 
 # Carregar variáveis do arquivo .env
 load_dotenv()
@@ -24,11 +28,13 @@ class FootballDataManager:
             "x-apisports-key": self.api_key
         }
         self.cache = {}
-        self.requests_made = 0
+        self.requests_made = 0  # Reset para permitir mais testes
         self.last_request_time = None
         
         # Buscar configurações do .env
         self.cache_duration = int(os.getenv('CACHE_DURATION', 6))  # Default: 6 horas
+        
+        logger.info(f"FootballDataManager inicializado com API key: {self.api_key[:10]}...")
         
         # Ligas disponíveis com IDs corretos para API-Sports
         self.available_leagues = {
@@ -53,10 +59,10 @@ class FootballDataManager:
                 'porto': {'id': 212, 'names': ['porto', 'fcp', 'dragões', 'azuis e brancos']},
                 'sporting': {'id': 228, 'names': ['sporting', 'scp', 'leões', 'verdes e brancos']},
                 'braga': {'id': 227, 'names': ['braga', 'sc braga', 'minhotos', 'marroquinos']},
-                'vitoria': {'id': 230, 'names': ['vitória', 'vsc', 'vitória guimarães', 'vitoria sc']},
+                'vitoria': {'id': 230, 'names': ['vitória', 'vitoria', 'guimaraes', 'vitória guimarães', 'vitoria guimaraes', 'vsc', 'vitoria sc', 'guimarães']},
                 'boavista': {'id': 218, 'names': ['boavista', 'boavista fc', 'axadrezados']},
-                'gil_vicente': {'id': 219, 'names': ['gil vicente', 'gvfc', 'galos']},
-                'famalicao': {'id': 229, 'names': ['famalicão', 'fc famalicão', 'famalicao']},
+                'gil_vicente': {'id': 219, 'names': ['gil vicente', 'gil', 'gvfc', 'galos']},
+                'famalicao': {'id': 229, 'names': ['famalicão', 'famalicao', 'fc famalicão', 'fc famalicao']},
                 'moreirense': {'id': 226, 'names': ['moreirense', 'moreirense fc']},
                 'rio_ave': {'id': 231, 'names': ['rio ave', 'rio ave fc']}
             },
@@ -118,15 +124,19 @@ class FootballDataManager:
         """
         Faz request à API com rate limiting e cache
         """
+        logger.info(f"=== FAZENDO REQUEST: {endpoint} ===")
+        logger.info(f"Parâmetros: {params}")
+        
         # Rate limiting: máximo 30 requests por minuto
         if self.last_request_time:
             time_diff = time.time() - self.last_request_time
             if time_diff < 2:  # Esperar 2 segundos entre requests
+                logger.info(f"Aguardando {2 - time_diff:.2f}s para rate limiting...")
                 time.sleep(2 - time_diff)
         
         # Verificar limite diário
         if self.requests_made >= 100:
-            print("❌ Limite diário de requests atingido (100/dia)")
+            logger.error("❌ Limite diário de requests atingido (100/dia)")
             return None
             
         # Criar chave de cache
@@ -136,20 +146,25 @@ class FootballDataManager:
         if cache_key in self.cache:
             cache_data = self.cache[cache_key]
             if datetime.now() < cache_data['expires']:
-                print(f"✅ Cache hit para {endpoint}")
+                logger.info(f"✅ Cache hit para {endpoint}")
                 return cache_data['data']
         
         # Fazer request
         url = f"{self.base_url}/{endpoint}"
         try:
+            logger.info(f"📡 Request {self.requests_made + 1}/100: {url}")
+            logger.info(f"Headers: {self.headers}")
+            
             response = requests.get(url, headers=self.headers, params=params, timeout=10)
             self.requests_made += 1
             self.last_request_time = time.time()
             
-            print(f"📡 Request {self.requests_made}/100: {endpoint}")
+            logger.info(f"Status code: {response.status_code}")
+            logger.info(f"Response headers: {dict(response.headers)}")
             
             if response.status_code == 200:
                 data = response.json()
+                logger.info(f"Response data keys: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
                 
                 # Verificar se a resposta contém dados válidos
                 if data.get('response') is not None:
@@ -158,23 +173,25 @@ class FootballDataManager:
                         'data': data,
                         'expires': datetime.now() + timedelta(hours=self.cache_duration)
                     }
+                    logger.info(f"✅ Request bem-sucedida para {endpoint}")
                     return data
                 else:
-                    print(f"⚠️ Resposta vazia para {endpoint}")
+                    logger.warning(f"⚠️ Resposta vazia para {endpoint}")
+                    logger.warning(f"Response content: {response.text[:200]}...")
                     return None
             elif response.status_code == 429:
-                print("❌ Rate limit atingido. Aguardando...")
+                logger.error("❌ Rate limit atingido. Aguardando...")
                 time.sleep(60)  # Esperar 1 minuto
                 return self._make_request(endpoint, params)  # Tentar novamente
             else:
-                print(f"❌ Erro {response.status_code}: {response.text}")
+                logger.error(f"❌ Erro {response.status_code}: {response.text}")
                 return None
                 
         except requests.exceptions.Timeout:
-            print(f"❌ Timeout na request para {endpoint}")
+            logger.error(f"❌ Timeout na request para {endpoint}")
             return None
         except Exception as e:
-            print(f"❌ Erro na request: {e}")
+            logger.error(f"❌ Erro na request: {e}", exc_info=True)
             return None
     
     def get_available_leagues(self) -> Dict:
@@ -200,58 +217,72 @@ class FootballDataManager:
             return data['response']
         return None
     
-    def get_standings(self, league_id: int, season: int = 2024) -> Optional[List[Dict]]:
+    def get_standings(self, league_id: int, season: int = 2023) -> Optional[List[Dict]]:
         """
         Obter classificação de uma liga
         """
         params = {"league": league_id, "season": season}
         data = self._make_request("standings", params)
-        
-        if data and data.get('response'):
+        if data and data.get('response') and len(data['response']) > 0:
             return data['response']
         return None
     
-    def get_team_statistics(self, team_id: int, league_id: int, season: int = 2024) -> Optional[Dict]:
+    def get_team_statistics(self, team_id: int, league_id: int, season: int = 2023) -> Optional[Dict]:
         """
         Obter estatísticas de uma equipa
         """
         params = {"team": team_id, "league": league_id, "season": season}
         data = self._make_request("teams/statistics", params)
-        
-        if data and data.get('response'):
+        print(f"DEBUG: get_team_statistics para team_id={team_id}, league_id={league_id}, season={season}")
+        print(f"DEBUG: Resposta da API: {data}")
+        if data and data.get('response') and len(data['response']) > 0:
             return data['response']
         return None
     
     def get_recent_matches(self, team_id: int, last: int = 5) -> Optional[List[Dict]]:
         """
-        Obter últimos jogos de uma equipa
+        Obter últimos jogos de uma equipa usando datas (compatível com plano gratuito)
         """
-        params = {"team": team_id, "last": last}
-        data = self._make_request("fixtures", params)
+        from datetime import datetime, timedelta
         
-        if data and data.get('response'):
-            return data['response']
+        # Calcular datas dos últimos 30 dias
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=30)
+        
+        params = {
+            "team": team_id, 
+            "season": 2023,
+            "from": start_date.strftime("%Y-%m-%d"),
+            "to": end_date.strftime("%Y-%m-%d")
+        }
+        data = self._make_request("fixtures", params)
+        print(f"DEBUG: get_recent_matches para team_id={team_id}")
+        print(f"DEBUG: Resposta da API: {data}")
+        if data and data.get('response') and len(data['response']) > 0:
+            # Ordenar por data e pegar os últimos 5
+            fixtures = sorted(data['response'], key=lambda x: x['fixture']['date'], reverse=True)
+            return fixtures[:last]
         return None
     
-    def get_fixtures_by_league(self, league_id: int, season: int = 2024, last: int = 10) -> Optional[List[Dict]]:
+    def get_fixtures_by_league(self, league_id: int, season: int = 2023, last: int = 10) -> Optional[List[Dict]]:
         """
         Obter últimos jogos de uma liga
         """
         params = {"league": league_id, "season": season, "last": last}
         data = self._make_request("fixtures", params)
-        
-        if data and data.get('response'):
+        if data and data.get('response') and len(data['response']) > 0:
             return data['response']
         return None
     
-    def get_head_to_head(self, team1_id: int, team2_id: int, last: int = 10) -> Optional[List[Dict]]:
+    def get_head_to_head(self, team1_id: int, team2_id: int, last: int = None) -> Optional[List[Dict]]:
         """
-        Obter histórico entre duas equipas
+        Obter histórico entre duas equipas (sem season, histórico completo)
         """
-        params = {"h2h": f"{team1_id}-{team2_id}", "last": last}
+        params = {"h2h": f"{team1_id}-{team2_id}"}
+        if last is not None:
+            params["last"] = str(last)
         data = self._make_request("fixtures/headtohead", params)
-        
-        if data and data.get('response'):
+        if data and data.get('response') and len(data['response']) > 0:
             return data['response']
         return None
     
@@ -266,14 +297,13 @@ class FootballDataManager:
             return data['response']
         return None
     
-    def get_top_scorers(self, league_id: int, season: int = 2024) -> Optional[List[Dict]]:
+    def get_top_scorers(self, league_id: int, season: int = 2023) -> Optional[List[Dict]]:
         """
         Obter melhores marcadores de uma liga
         """
         params = {"league": league_id, "season": season}
         data = self._make_request("players/topscorers", params)
-        
-        if data and data.get('response'):
+        if data and data.get('response') and len(data['response']) > 0:
             return data['response']
         return None
     
@@ -332,49 +362,15 @@ class FootballDataManager:
             return data['response']
         return None
     
-    def identify_team_by_name(self, team_name: str, league_id: int = None) -> Optional[Dict]:
+    def identify_team_by_name(self, team_name: str) -> Optional[List[Dict]]:
         """
-        Identificar equipa por nome numa liga específica
+        Procurar equipa por nome
         """
-        team_name_lower = team_name.lower()
+        params = {"search": team_name}
+        data = self._make_request("teams", params)
         
-        # Verificar nas equipas populares primeiro
-        if league_id and league_id in self.popular_teams:
-            for team_key, team_info in self.popular_teams[league_id].items():
-                for name in team_info['names']:
-                    if name in team_name_lower or team_name_lower in name:
-                        return {'name': team_key, 'id': team_info['id'], 'league': league_id}
-        
-        # Verificar em todas as ligas se não foi especificada uma liga
-        if not league_id:
-            for league_id_check, teams in self.popular_teams.items():
-                for team_key, team_info in teams.items():
-                    for name in team_info['names']:
-                        if name in team_name_lower or team_name_lower in name:
-                            return {'name': team_key, 'id': team_info['id'], 'league': league_id_check}
-        
-        # Se não encontrou, procurar na API
-        search_results = self.search_team(team_name)
-        if search_results:
-            for team in search_results:
-                if league_id:
-                    # Verificar se a equipa joga na liga especificada
-                    team_leagues = self.get_teams_by_league(league_id)
-                    if team_leagues:
-                        for league_team in team_leagues:
-                            if league_team['team']['id'] == team['team']['id']:
-                                return {
-                                    'name': team['team']['name'],
-                                    'id': team['team']['id'],
-                                    'league': league_id
-                                }
-                else:
-                    return {
-                        'name': team['team']['name'],
-                        'id': team['team']['id'],
-                        'league': None
-                    }
-        
+        if data and data.get('response'):
+            return data['response']
         return None
     
     def identify_league_by_name(self, league_name: str) -> Optional[Dict]:

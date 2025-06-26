@@ -19,6 +19,7 @@
                 <div class="status">
                     <span class="status-indicator online" id="statusIndicator"></span>
                     <span id="requestsCount">Requests: 0/100</span>
+                    <button id="clearCacheBtn" title="Limpar Cache" style="margin-left: 10px; background: #f3f4f6; border: none; border-radius: 50%; width: 32px; height: 32px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;"><i class="fas fa-broom"></i></button>
                 </div>
             </div>
         </header>
@@ -31,7 +32,7 @@
                     <h3><i class="fas fa-globe"></i> Selecionar Liga</h3>
                     <select class="league-dropdown" id="leagueSelect">
                         <option value="94">🇵🇹 Liga Portugal</option>
-                        <option value="39">🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League</option>
+                        <option value="39">🇬🇧 Premier League</option>
                         <option value="140">🇪🇸 La Liga</option>
                         <option value="78">🇩🇪 Bundesliga</option>
                         <option value="135">🇮🇹 Serie A</option>
@@ -154,7 +155,6 @@
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', function() {
             initializeApp();
-            setupEventListeners();
         });
 
         // Allow Enter key to send message

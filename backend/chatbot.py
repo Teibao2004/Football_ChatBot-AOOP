@@ -59,46 +59,157 @@ class FootballChatbot:
             'cache': ['cache', 'limpar cache', 'clear cache'],
             'stats': ['estatísticas do bot', 'stats do bot', 'info']
         }
+        self.classicos = {
+            94: ('benfica', 'porto'),
+            140: ('real madrid', 'barcelona'),
+            39: ('manchester united', 'liverpool'),
+            78: ('bayern', 'dortmund'),
+            135: ('inter', 'milan'),
+            61: ('psg', 'marseille'),
+        }
     
-    def process_question(self, question: str) -> str:
+    def _extract_team_name(self, text: str) -> Optional[str]:
+        # Tenta extrair o nome da equipa de padrões comuns, incluindo nomes compostos
+        patterns = [
+            r'classifica[çc][aã]o (do|da|de) ([\w\s]+?)( na tabela|$)',
+            r'estat[íi]sticas (do|da|de) ([\w\s]+)',
+            r'como est[aá] (o|a|os|as)? ([\w\s]+)',
+            r'posição (do|da|de) ([\w\s]+)',
+            r'([\w\s]+) vs ([\w\s]+)',
+            r'([\w\s]+) contra ([\w\s]+)',
+            r'([\w\s]+) x ([\w\s]+)',
+            r'desempenho (do|da|de) ([\w\s]+)',
+            r'([\w\s]+) na tabela',
+            r'([\w\s]+) estat[íi]sticas',
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                if match.lastindex:
+                    for i in range(match.lastindex, 0, -1):
+                        val = match.group(i)
+                        if val and len(val.strip()) > 2:
+                            return val.strip().replace('  ', ' ')
+        return None
+
+    def _identify_team(self, text: str, league_id: int = None) -> Optional[Dict]:
+        # Primeiro tenta extrair só o nome da equipa
+        team_name = self._extract_team_name(text)
+        if team_name:
+            team = self.data_manager.identify_team_by_name(team_name)
+            if team and isinstance(team, dict):
+                return team
+        # Se não conseguiu extrair, tenta com o texto todo (fallback antigo)
+        team = self.data_manager.identify_team_by_name(text)
+        if team and isinstance(team, dict):
+            return team
+        return None
+
+    def process_question(self, question: str, league_id: int = None) -> str:
         """
         Processar pergunta do utilizador com melhor análise contextual
         """
         question_lower = question.lower().strip()
-        
         try:
+            # Resposta especial para 'Informações sobre o chat'
+            if question_lower in ["informações sobre o chat", "informacoes sobre o chat"]:
+                return self._show_bot_stats()
+            # Se for 'Informações sobre (team)', tratar como 'Como está o (team)'
+            match = re.match(r"informações sobre (.+)", question_lower)
+            if match and match.group(1).strip() != "o chat":
+                team = match.group(1).strip()
+                return self.process_question(f"Como está o {team}")
+            # Clássico dinâmico
+            if 'clássico' in question_lower or 'classico' in question_lower:
+                if league_id is not None:
+                    lid = int(league_id)
+                else:
+                    league_info = self._identify_league(question_lower)
+                    lid = 94
+                    if isinstance(league_info, dict) and 'id' in league_info and league_info['id'] is not None:
+                        lid = league_info['id']
+                team1_slug, team2_slug = self.classicos.get(lid, ('benfica', 'porto'))
+                team1 = self.data_manager.identify_team_by_name(team1_slug)
+                team2 = self.data_manager.identify_team_by_name(team2_slug)
+                if team1 and isinstance(team1, list) and len(team1) > 0:
+                    team1 = team1[0]['team'] if 'team' in team1[0] else team1[0]
+                else:
+                    team1 = None
+                if team2 and isinstance(team2, list) and len(team2) > 0:
+                    team2 = team2[0]['team'] if 'team' in team2[0] else team2[0]
+                else:
+                    team2 = None
+                if team1 and team2:
+                    # Buscar histórico completo (não só época 2023)
+                    h2h = self.data_manager.get_head_to_head(team1['id'], team2['id'])
+                    if h2h and len(h2h) > 0:
+                        # Mostrar o último jogo
+                        match = h2h[0]
+                        home = match['teams']['home']['name']
+                        away = match['teams']['away']['name']
+                        home_goals = match['goals']['home']
+                        away_goals = match['goals']['away']
+                        date = match['fixture']['date'][:10]
+                        response = f"🔥 **Clássico {home} vs {away}** 🔥\n\nÚltimo jogo: {date}\n{home} {home_goals} - {away_goals} {away}\n"
+                        # Mostrar histórico se houver mais jogos
+                        if len(h2h) > 1:
+                            response += "\nHistórico recente:\n"
+                            for m in h2h[:5]:
+                                d = m['fixture']['date'][:10]
+                                h = m['teams']['home']['name']
+                                a = m['teams']['away']['name']
+                                hg = m['goals']['home']
+                                ag = m['goals']['away']
+                                response += f"- {d}: {h} {hg}-{ag} {a}\n"
+                        response += "\nQueres saber mais estatísticas ou o histórico completo? Pergunta!"
+                        return response
+                    else:
+                        return "🔥 **Clássico** 🔥\n\nNão há jogos recentes nem histórico disponível entre estas equipas. Queres saber estatísticas ou próximos jogos? Pergunta!"
+                return "🔥 **Clássico** 🔥\n\nNão foi possível identificar as equipas do clássico nesta liga."
+            # Pergunta combinada: posição + estatísticas
+            if (("posição" in question_lower or "posicao" in question_lower or "tabela" in question_lower) and "estat" in question_lower):
+                league_info = self._identify_league(question_lower)
+                if league_id is not None:
+                    league_info = self.data_manager.get_league_info(int(league_id)) or {}
+                league_id_val = league_info['id'] if isinstance(league_info, dict) and 'id' in league_info else 94
+                if league_id_val is None:
+                    league_id_val = 94
+                team_info = self._identify_team(question_lower, league_id_val)
+                if not team_info:
+                    return "🤔 Desculpa, não percebi a equipa. Escreve 'ajuda' para ver exemplos de perguntas."
+                standings_resp = self._handle_standings(question_lower, league_info if league_info is not None else {}, team_info)
+                stats_resp = self._handle_team_stats(question_lower, team_info, league_info if league_info is not None else {})
+                return standings_resp + "\n\n" + stats_resp
             # Verificar comandos especiais primeiro
             special_response = self._handle_special_commands(question_lower)
             if special_response:
                 return special_response
-            
             # Identificar tipo de pergunta
             question_type = self._classify_question(question_lower)
-            
             # Identificar liga e equipa no contexto
             league_info = self._identify_league(question_lower)
-            team_info = self._identify_team(question_lower, league_info['id'] if league_info else None)
-            
+            league_id_val = league_info['id'] if isinstance(league_info, dict) and 'id' in league_info and league_info['id'] is not None else 94
+            team_info = self._identify_team(question_lower, league_id_val)
+            # Se não encontrou equipa e a pergunta é sobre equipa, devolve mensagem amigável
+            if question_type in ['standings', 'team_stats', 'recent_matches', 'next_matches', 'head_to_head'] and not team_info:
+                return "🤔 Desculpa, não percebi a equipa. Escreve 'ajuda' para ver exemplos de perguntas."
             # Processar baseado no tipo
             if question_type == 'standings':
-                return self._handle_standings(question_lower, league_info, team_info)
+                return self._handle_standings(question_lower, league_info if league_info is not None else {}, team_info if team_info is not None else {})
             elif question_type == 'team_stats':
-                return self._handle_team_stats(question_lower, team_info, league_info)
+                return self._handle_team_stats(question_lower, team_info if team_info is not None else {}, league_info if league_info is not None else {})
             elif question_type == 'recent_matches':
-                return self._handle_recent_matches(question_lower, team_info, league_info)
+                return self._handle_recent_matches(question_lower, team_info if team_info is not None else {}, league_info if league_info is not None else {})
             elif question_type == 'next_matches':
-                return self._handle_next_matches(question_lower, team_info, league_info)
+                return self._handle_next_matches(question_lower, team_info if team_info is not None else {}, league_info if league_info is not None else {})
             elif question_type == 'head_to_head':
                 return self._handle_head_to_head(question_lower)
-            elif question_type == 'live_matches':
-                return self._handle_live_matches(question_lower, league_info)
             elif question_type == 'top_scorers':
-                return self._handle_top_scorers(question_lower, league_info)
+                return self._handle_top_scorers(question_lower, league_info if league_info is not None else {})
             elif question_type == 'league_info':
-                return self._handle_league_info(question_lower, league_info)
+                return self._handle_league_info(question_lower, league_info if league_info is not None else {})
             else:
-                return self._handle_general(question_lower, team_info, league_info)
-                
+                return self._handle_general(question_lower, team_info if team_info is not None else {}, league_info if league_info is not None else {})
         except Exception as e:
             return f"😔 Desculpa, ocorreu um erro ao processar a tua pergunta: {str(e)}\n\nTenta reformular ou escreve 'ajuda' para ver os comandos disponíveis."
     
@@ -132,10 +243,8 @@ class FootballChatbot:
                 score += matches
             scores[question_type] = score
         
-        # Retornar o tipo com maior pontuação
         if max(scores.values()) > 0:
             return max(scores, key=scores.get)
-        
         return 'general'
     
     def _identify_league(self, text: str) -> Optional[Dict]:
@@ -144,227 +253,193 @@ class FootballChatbot:
         """
         return self.data_manager.identify_league_by_name(text)
     
-    def _identify_team(self, text: str, league_id: int = None) -> Optional[Dict]:
-        """
-        Identificar equipa no texto
-        """
-        return self.data_manager.identify_team_by_name(text, league_id)
-    
-    def _handle_standings(self, question: str, league_info: Dict = None, team_info: Dict = None) -> str:
-        """
-        Responder perguntas sobre classificações
-        """
-        # Determinar liga (padrão: Liga Portugal)
-        league_id = league_info['id'] if league_info else 94
-        league_name = league_info['name'] if league_info else 'Liga Portugal'
-        league_flag = league_info['flag'] if league_info else '🇵🇹'
-        
-        standings = self.data_manager.get_standings(league_id, 2024)
-        
+    def _handle_standings(self, question: str, league_info: dict = None, team_info: dict = None) -> str:
+        league_info = league_info or {}
+        team_info = team_info or {}
+        league_id = league_info.get('id', 94)
+        league_name = league_info.get('name', 'Liga Portugal')
+        league_flag = league_info.get('flag', '🇵🇹')
+        standings = self.data_manager.get_standings(league_id, 2023)
         if not standings:
             return f"😔 Não consegui obter a classificação da {league_name} no momento. Tenta novamente mais tarde."
-        
         table = standings[0]['league']['standings'][0]
-        
+        # Se pergunta sobre líder
+        if any(word in question for word in ['líder', 'lider', 'primeiro lugar', 'quem está em primeiro']):
+            leader = table[0]
+            pos = leader['rank']
+            name = leader['team']['name']
+            points = leader['points']
+            played = leader['all']['played']
+            return f"🥇 **Líder da {league_name}:**\n\n<b>{pos}. {name}</b> - {points} pts ({played}j)"
         # Se pergunta específica sobre uma equipa
-        if team_info:
-            for team_data in table:
-                if team_data['team']['id'] == team_info['id']:
-                    pos = team_data['rank']
-                    name = team_data['team']['name']
-                    points = team_data['points']
-                    played = team_data['all']['played']
-                    wins = team_data['all']['win']
-                    draws = team_data['all']['draw']
-                    losses = team_data['all']['lose']
-                    goals_for = team_data['all']['goals']['for']
-                    goals_against = team_data['all']['goals']['against']
-                    goal_diff = goals_for - goals_against
-                    
-                    # Status baseado na posição
-                    if pos == 1:
-                        status = "🥇 **LÍDER!**"
-                    elif pos <= 4 and league_id in [94, 39, 140, 78, 135, 61]:
-                        status = "🔵 **Champions League**"
-                    elif pos <= 6 and league_id in [94, 39, 140, 78, 135, 61]:
-                        status = "🟡 **Europa League**"
-                    elif pos >= len(table) - 2:
-                        status = "🔴 **Zona de Descida**"
-                    else:
-                        status = f"⚪ **{pos}º lugar**"
-                    
-                    return f"{league_flag} **{name}** na {league_name}\n\n" \
-                           f"{status}\n\n" \
-                           f"📊 **Estatísticas:**\n" \
-                           f"• **Posição:** {pos}º\n" \
-                           f"• **Pontos:** {points}\n" \
-                           f"• **Jogos:** {played}\n" \
-                           f"• **Vitórias:** {wins}\n" \
-                           f"• **Empates:** {draws}\n" \
-                           f"• **Derrotas:** {losses}\n" \
-                           f"• **Golos:** {goals_for}:{goals_against} ({'+' if goal_diff >= 0 else ''}{goal_diff})"
-        
-        # Classificação geral
+        highlight_team = team_info.get('id') if team_info else None
+        highlight_names = set()
+        if team_info and team_info.get('name'):
+            # Adiciona variantes do nome para comparação robusta
+            highlight_names.add(team_info['name'].lower())
+            # Adiciona variantes conhecidas se existirem
+            league_id_val = league_info['id'] if isinstance(league_info, dict) and 'id' in league_info else 94
+            popular_teams = self.data_manager.popular_teams.get(league_id_val, {})
+            for team_key, team_data in popular_teams.items():
+                if team_data['id'] == highlight_team:
+                    for n in team_data['names']:
+                        highlight_names.add(n.lower())
         response = f"{league_flag} **Classificação da {league_name}:**\n\n"
-        
-        # Mostrar top 8 ou toda a tabela se for pequena
-        display_count = min(8, len(table))
-        
-        for i, team_data in enumerate(table[:display_count]):
+        display_rows = []
+        for i, team_data in enumerate(table):
             pos = team_data['rank']
             name = team_data['team']['name']
             points = team_data['points']
             played = team_data['all']['played']
-            
-            # Emojis baseados na posição e liga
-            if pos == 1:
-                emoji = "🥇"
-            elif pos == 2:
-                emoji = "🥈"
-            elif pos == 3:
-                emoji = "🥉"
-            elif pos <= 4 and league_id in [94, 39, 140, 78, 135, 61]:
-                emoji = "🔵"  # Champions League
-            elif pos <= 6 and league_id in [94, 39, 140, 78, 135, 61]:
-                emoji = "🟡"  # Europa League
-            elif pos >= len(table) - 2:
-                emoji = "🔴"  # Descida
+            # Destacar só o nome da equipa a bold
+            if highlight_team and team_data['team']['id'] == highlight_team:
+                name_disp = f"**{name}**"
+            elif highlight_names and name.lower() in highlight_names:
+                name_disp = f"**{name}**"
             else:
-                emoji = "⚪"
-            
-            response += f"{emoji} **{pos}.** {name} - {points} pts ({played}j)\n"
-        
-        if len(table) > display_count:
-            response += f"\n... e mais {len(table) - display_count} equipas"
-        
+                name_disp = name
+            row = f"{pos}. {name_disp} - {points} pts ({played}j)"
+            display_rows.append(row)
+        # Mostrar top 8, mas garantir que equipa pedida aparece
+        highlight_row = None
+        for row in display_rows:
+            if '**' in row:
+                highlight_row = row
+                break
+        if highlight_row and highlight_row not in display_rows[:8]:
+            response += '\n'.join(display_rows[:7] + [highlight_row])
+        else:
+            response += '\n'.join(display_rows[:8])
+        if len(table) > 8:
+            response += f"\n\n... e mais {len(table)-8} equipas"
         return response
     
     def _handle_team_stats(self, question: str, team_info: Dict = None, league_info: Dict = None) -> str:
         """
         Responder perguntas sobre estatísticas de equipas
         """
+        team_info = team_info or {}
+        league_info = league_info or {}
         if not team_info:
-            return "🤔 Não consegui identificar a equipa. Podes especificar? (ex: Benfica, Real Madrid, Manchester United)"
+            return "🤔 De que equipa queres saber as estatísticas? Especifica, por favor."
         
-        # Determinar liga
-        league_id = team_info.get('league') or (league_info['id'] if league_info else 94)
+        team_id = team_info['id']
+        team_name = team_info.get('name', 'equipa').title()
+        league_id = team_info.get('league', 94)  # Default: Liga Portugal
         
-        stats = self.data_manager.get_team_statistics(team_info['id'], league_id, 2024)
+        stats = self.data_manager.get_team_statistics(team_id, league_id, 2023)
+        
         if not stats:
-            team_name = team_info.get('name', 'equipa').title()
             return f"😔 Não consegui obter as estatísticas do {team_name} no momento."
         
-        # Extrair dados
-        fixtures = stats['fixtures']
-        goals = stats['goals']
-        team_name = stats['team']['name']
-        league_name = stats['league']['name']
-        
-        played = fixtures['played']['total']
-        wins = fixtures['wins']['total']
-        draws = fixtures['draws']['total']
-        losses = fixtures['loses']['total']
-        
-        goals_for = goals['for']['total']['total']
-        goals_against = goals['against']['total']['total']
-        goal_difference = goals_for - goals_against
-        
-        # Calcular percentagens e médias
-        win_percentage = round((wins / played * 100), 1) if played > 0 else 0
-        avg_goals_for = round(goals_for / played, 1) if played > 0 else 0
-        avg_goals_against = round(goals_against / played, 1) if played > 0 else 0
-        
-        # Forma recente (baseada em percentagem de vitórias)
-        if win_percentage >= 70:
-            form_emoji = "🔥"
-            form_text = "Excelente"
-        elif win_percentage >= 50:
-            form_emoji = "✅"
-            form_text = "Boa"
-        elif win_percentage >= 30:
-            form_emoji = "⚠️"
-            form_text = "Irregular"
-        else:
-            form_emoji = "❌"
-            form_text = "Má"
-        
-        response = f"⚽ **{team_name}** ({league_name} 2024):\n\n"
-        response += f"{form_emoji} **Forma: {form_text}** ({win_percentage}% vitórias)\n\n"
-        
-        response += f"🎯 **Resultados:**\n"
-        response += f"• **Jogos:** {played}\n"
-        response += f"• **Vitórias:** {wins}\n"
-        response += f"• **Empates:** {draws}\n"
-        response += f"• **Derrotas:** {losses}\n\n"
-        
-        response += f"⚽ **Golos:**\n"
-        response += f"• **Marcados:** {goals_for} (média: {avg_goals_for})\n"
-        response += f"• **Sofridos:** {goals_against} (média: {avg_goals_against})\n"
-        response += f"• **Diferença:** {'+' if goal_difference >= 0 else ''}{goal_difference}\n"
-        
-        # Estatísticas adicionais se disponíveis
-        if 'cards' in stats:
-            yellow = stats['cards']['yellow']['total']
-            red = stats['cards']['red']['total']
-            if yellow or red:
-                response += f"\n🟨 **Disciplina:**\n"
-                response += f"• Cartões amarelos: {yellow}\n"
-                response += f"• Cartões vermelhos: {red}"
-        
-        return response
+        try:
+            # Extrair dados das estatísticas
+            team_data = stats.get('team', {})
+            league_data = stats.get('league', {})
+            fixtures_data = stats.get('fixtures', {})
+            goals_data = stats.get('goals', {})
+            
+            # Verificar se os dados necessários existem
+            if not fixtures_data or not goals_data:
+                return f"😔 Dados incompletos para {team_name}. Tenta novamente mais tarde."
+            
+            # Calcular estatísticas
+            played = fixtures_data.get('played', {}).get('total', 0)
+            wins = fixtures_data.get('wins', {}).get('total', 0)
+            draws = fixtures_data.get('draws', {}).get('total', 0)
+            losses = fixtures_data.get('loses', {}).get('total', 0)
+            
+            goals_for = goals_data.get('for', {}).get('total', {}).get('total', 0)
+            goals_against = goals_data.get('against', {}).get('total', {}).get('total', 0)
+            
+            # Calcular percentagens
+            win_rate = (wins / played * 100) if played > 0 else 0
+            draw_rate = (draws / played * 100) if played > 0 else 0
+            loss_rate = (losses / played * 100) if played > 0 else 0
+            
+            # Calcular média de golos
+            avg_goals_for = round(goals_for / played, 2) if played > 0 else 0
+            avg_goals_against = round(goals_against / played, 2) if played > 0 else 0
+            
+            response = f"📊 **Estatísticas do {team_name}:**\n\n"
+            response += f"🏟️ **Jogos:** {played}\n"
+            response += f"✅ **Vitórias:** {wins} ({win_rate:.1f}%)\n"
+            response += f"⚖️ **Empates:** {draws} ({draw_rate:.1f}%)\n"
+            response += f"❌ **Derrotas:** {losses} ({loss_rate:.1f}%)\n\n"
+            response += f"⚽ **Golos:** {goals_for} marcados, {goals_against} sofridos\n"
+            response += f"📈 **Média:** {avg_goals_for} por jogo marcados, {avg_goals_against} por jogo sofridos\n"
+            
+            # Adicionar informações da liga se disponível
+            if league_data:
+                league_name = league_data.get('name', 'Liga')
+                season = league_data.get('season', '2024')
+                response += f"\n🏆 **Liga:** {league_name} ({season})"
+            
+            return response
+            
+        except Exception as e:
+            return f"😔 Erro ao processar as estatísticas do {team_name}. Tenta novamente."
     
     def _handle_recent_matches(self, question: str, team_info: Dict = None, league_info: Dict = None) -> str:
         """
         Responder perguntas sobre jogos recentes
         """
+        team_info = team_info or {}
+        league_info = league_info or {}
         if not team_info and not league_info:
             return "🤔 De que equipa ou liga queres saber os últimos jogos?"
         
         if team_info:
             # Jogos de uma equipa específica
-            matches = self.data_manager.get_recent_matches(team_info['id'], 5)
+            team_id = team_info['id']
+            team_name = team_info.get('name', 'equipa').title()
+            
+            matches = self.data_manager.get_recent_matches(team_id, 5)
+            
             if not matches:
-                team_name = team_info.get('name', 'equipa').title()
                 return f"😔 Não consegui obter os últimos jogos do {team_name}."
             
-            team_name = team_info.get('name', 'equipa').title()
             response = f"📅 **Últimos 5 jogos do {team_name}:**\n\n"
             
-            for match in matches[:5]:
-                home_team = match['teams']['home']['name']
-                away_team = match['teams']['away']['name']
-                home_goals = match['goals']['home'] if match['goals']['home'] is not None else 0
-                away_goals = match['goals']['away'] if match['goals']['away'] is not None else 0
-                date = match['fixture']['date'][:10]
-                status = match['fixture']['status']['short']
+            for i, match in enumerate(matches[:5]):
                 
-                # Se jogo não terminou
-                if status not in ['FT', 'AET', 'PEN']:
+                try:
+                    home_team = match['teams']['home']['name']
+                    away_team = match['teams']['away']['name']
+                    home_goals = match['goals']['home'] if match['goals']['home'] is not None else 0
+                    away_goals = match['goals']['away'] if match['goals']['away'] is not None else 0
+                    date = match['fixture']['date'][:10]
+                    status = match['fixture']['status']['short']
+                    
+                    # Determinar resultado para a equipa
+                    if match['teams']['home']['id'] == team_info['id']:
+                        if home_goals > away_goals:
+                            result = "✅"
+                        elif home_goals < away_goals:
+                            result = "❌"
+                        else:
+                            result = "⚪"
+                    else:
+                        if away_goals > home_goals:
+                            result = "✅"
+                        elif away_goals < home_goals:
+                            result = "❌"
+                        else:
+                            result = "⚪"
+                    
+                    response += f"{result} **{date}:** {home_team} {home_goals}-{away_goals} {away_team}\n"
+                    
+                except Exception as e:
                     continue
-                
-                # Determinar resultado para a equipa
-                if match['teams']['home']['id'] == team_info['id']:
-                    if home_goals > away_goals:
-                        result = "✅"
-                    elif home_goals < away_goals:
-                        result = "❌"
-                    else:
-                        result = "⚪"
-                else:
-                    if away_goals > home_goals:
-                        result = "✅"
-                    elif away_goals < home_goals:
-                        result = "❌"
-                    else:
-                        result = "⚪"
-                
-                response += f"{result} **{date}:** {home_team} {home_goals}-{away_goals} {away_team}\n"
+            
+            return response
             
         else:
             # Jogos recentes de uma liga
             league_id = league_info['id']
             league_name = league_info['name']
-            matches = self.data_manager.get_fixtures_by_league(league_id, 2024, 10)
+            
+            matches = self.data_manager.get_fixtures_by_league(league_id, 2023, 10)
             
             if not matches:
                 return f"😔 Não consegui obter os últimos jogos da {league_name}."
@@ -382,13 +457,15 @@ class FootballChatbot:
                 date = match['fixture']['date'][:10]
                 
                 response += f"**{date}:** {home_team} {home_goals}-{away_goals} {away_team}\n"
-        
-        return response
+            
+            return response
     
     def _handle_next_matches(self, question: str, team_info: Dict = None, league_info: Dict = None) -> str:
         """
         Responder perguntas sobre próximos jogos
         """
+        team_info = team_info or {}
+        league_info = league_info or {}
         if not team_info and not league_info:
             return "🤔 De que equipa ou liga queres saber os próximos jogos?"
         
@@ -476,7 +553,7 @@ class FootballChatbot:
         team1 = teams_found[0]
         team2 = teams_found[1]
         
-        h2h = self.data_manager.get_head_to_head(team1['id'], team2['id'], 8)
+        h2h = self.data_manager.get_head_to_head(team1['id'], team2['id'])
         if not h2h:
             return f"😔 Não consegui obter o histórico entre {team1['name']} e {team2['name']}."
         
@@ -570,7 +647,7 @@ class FootballChatbot:
         league_id = league_info['id'] if league_info else 94
         league_name = league_info['name'] if league_info else 'Liga Portugal'
         
-        top_scorers = self.data_manager.get_top_scorers(league_id, 2024)
+        top_scorers = self.data_manager.get_top_scorers(league_id, 2023)
         
         if not top_scorers:
             return f"😔 Não consegui obter os melhores marcadores da {league_name} no momento."
@@ -610,7 +687,7 @@ class FootballChatbot:
         response = f"{league_flag} **{league_name}** ({country})\n\n"
         
         # Tentar obter estatísticas da liga
-        standings = self.data_manager.get_standings(league_info['id'], 2024)
+        standings = self.data_manager.get_standings(league_info['id'], 2023)
         if standings:
             table = standings[0]['league']['standings'][0]
             total_teams = len(table)
@@ -632,9 +709,8 @@ class FootballChatbot:
         return response
     
     def _handle_general(self, question: str, team_info: Dict = None, league_info: Dict = None) -> str:
-        """
-        Responder perguntas gerais ou tentar inferir intenção
-        """
+        team_info = team_info or {}
+        league_info = league_info or {}
         # Se menciona uma equipa, mostrar estatísticas gerais
         if team_info:
             return self._handle_team_stats(question, team_info, league_info)

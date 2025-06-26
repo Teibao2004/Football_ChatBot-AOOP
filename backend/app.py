@@ -4,9 +4,14 @@ import os
 from dotenv import load_dotenv
 import json
 from datetime import datetime
+import logging
 
 from football_manager import FootballDataManager
 from chatbot import FootballChatbot
+
+# Configurar logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Carregar variáveis de ambiente
 load_dotenv()
@@ -23,11 +28,18 @@ if not api_key:
 football_manager = FootballDataManager(api_key)
 chatbot = FootballChatbot(api_key)
 
-# REMOVE OR COMMENT OUT THE PROBLEMATIC before_request FUNCTION
-# @app.before_request
-# def before_request():
-#     if request.content_type:
-#         request.content_type = request.content_type + '; charset=utf-8'
+# Configurar Flask para UTF-8
+app.config['JSON_AS_ASCII'] = False
+app.config['JSONIFY_PRETTYPRINT_REGULAR'] = True
+
+@app.before_request
+def before_request():
+    """Middleware para garantir codificação UTF-8"""
+    if request.content_type and 'application/json' in request.content_type:
+        # Forçar UTF-8 para requests JSON
+        request.environ['CONTENT_TYPE'] = request.content_type + '; charset=utf-8'
+        logger.info(f"Request content-type: {request.content_type}")
+        logger.info(f"Request headers: {dict(request.headers)}")
 
 # Limite para season 2023 por defeito 
 def get_valid_season(default=2023):
@@ -43,22 +55,70 @@ def index():
 def chat():
     """Endpoint do chat"""
     try:
-        data = request.get_json()
+        logger.info("=== INÍCIO DO PROCESSAMENTO DO CHAT ===")
+        logger.info(f"Request method: {request.method}")
+        logger.info(f"Request content-type: {request.content_type}")
+        logger.info(f"Request headers: {dict(request.headers)}")
+        
+        # Log do body raw para debug
+        raw_data = request.get_data()
+        logger.info(f"Raw request data: {raw_data}")
+        logger.info(f"Raw data length: {len(raw_data) if raw_data else 0}")
+        
+        # Tentar diferentes codificações
+        data = None
+        encodings_to_try = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
+        
+        for encoding in encodings_to_try:
+            try:
+                if raw_data:
+                    decoded_data = raw_data.decode(encoding)
+                    logger.info(f"Decoded with {encoding}: {decoded_data}")
+                    data = json.loads(decoded_data)
+                    logger.info(f"Successfully parsed JSON with {encoding}")
+                    break
+                else:
+                    data = request.get_json()
+                    logger.info("Using request.get_json()")
+                    break
+            except UnicodeDecodeError as e:
+                logger.warning(f"Failed to decode with {encoding}: {e}")
+                continue
+            except json.JSONDecodeError as e:
+                logger.warning(f"Failed to parse JSON with {encoding}: {e}")
+                continue
+        
+        if data is None:
+            logger.error("Failed to decode request data with any encoding")
+            return jsonify({'error': 'Erro ao processar dados da requisição'}), 400
+        
+        logger.info(f"Data parsed: {data}")
+        
         question = data.get('question', '')
+        league_id = data.get('league_id', None)
+        logger.info(f"Pergunta recebida: '{question}'")
+        logger.info(f"Pergunta length: {len(question)}")
         
         if not question:
+            logger.warning("Pergunta vazia recebida")
             return jsonify({'error': 'Pergunta é obrigatória'}), 400
         
         # Processar pergunta
-        response = chatbot.process_question(question)
+        logger.info("Iniciando processamento da pergunta...")
+        response = chatbot.process_question(question, league_id=league_id)
+        logger.info(f"Resposta gerada: {response[:100]}...")
         
-        return jsonify({
+        result = {
             'response': response,
             'timestamp': datetime.now().isoformat(),
             'requests_used': football_manager.requests_made
-        })
+        }
+        
+        logger.info("=== FIM DO PROCESSAMENTO DO CHAT ===")
+        return jsonify(result)
         
     except Exception as e:
+        logger.error(f"Erro geral no chat: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/leagues')
@@ -495,15 +555,42 @@ def search_team(team_name):
 
 @app.route('/api/status')
 def get_status():
-    """Status da API e requests utilizados"""
-    return jsonify({
-        'status': 'online',
-        'requests_used': football_manager.requests_made,
-        'requests_limit': 100,
-        'cache_entries': len(football_manager.cache),
-        'available_leagues': len(football_manager.get_available_leagues()),
-        'timestamp': datetime.now().isoformat()
-    })
+    """Obter status da API"""
+    try:
+        cache_stats = football_manager.get_cache_stats()
+        return jsonify({
+            'status': 'online',
+            'requests_used': football_manager.requests_made,
+            'requests_remaining': 100 - football_manager.requests_made,
+            'cache': cache_stats,
+            'timestamp': datetime.now().isoformat()
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/cache/clear', methods=['POST'])
+def clear_cache():
+    """Limpar cache"""
+    try:
+        football_manager.clear_cache()
+        return jsonify({
+            'message': 'Cache limpo com sucesso',
+            'timestamp': datetime.now().isoformat()
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/cache/stats')
+def get_cache_stats():
+    """Obter estatísticas do cache"""
+    try:
+        stats = football_manager.get_cache_stats()
+        return jsonify({
+            'cache_stats': stats,
+            'timestamp': datetime.now().isoformat()
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/popular-teams')
 def get_popular_teams():
