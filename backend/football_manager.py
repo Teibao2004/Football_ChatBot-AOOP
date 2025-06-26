@@ -206,7 +206,7 @@ class FootballDataManager:
             logger.info(f"Diferença de tempo: {(datetime.now() - created_time).total_seconds()} segundos")
             
             # Se o cache ainda é válido, retorna imediatamente
-            if (datetime.now() - created_time).total_seconds() < 2592000:  # 30d
+            if (datetime.now() - created_time).total_seconds() < 300:  # 5 Minutos
                 logger.info(f"✅ Cache hit (SQLite) para {endpoint}")
                 conn.close()
                 return json.loads(response_json)
