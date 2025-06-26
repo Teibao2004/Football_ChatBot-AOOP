@@ -642,7 +642,7 @@ if __name__ == '__main__':
     print("🚀 Iniciando Football ChatBot API...")
     print(f"📊 Requests disponíveis: {100 - football_manager.requests_made}/100")
     print("🏆 Ligas disponíveis:", list(football_manager.get_available_leagues().keys()))
-    print("💬 Acesse: http://localhost:5000")
+    print("💬 Acesse: https://football-chatbot-aoop.onrender.com")
     
     app.run(
         host='0.0.0.0',

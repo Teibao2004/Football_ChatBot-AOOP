@@ -1,7 +1,7 @@
 // Football ChatBot - JavaScript File - VERSÃO ATUALIZADA PARA DADOS DA LIGA PORTUGAL
 class FootballChatBot {
   constructor() {
-    this.apiUrl = "http://localhost:5000";
+    this.apiUrl = "https://football-chatbot-aoop-backend.onrender.com";
     this.requestCount = 0;
     this.maxRequests = 100;
     this.isLoading = false;
@@ -597,7 +597,7 @@ function setupClearCacheButton() {
     const original = btn.innerHTML;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
     try {
-      const resp = await fetch("http://localhost:5000/api/cache/clear", {
+      const resp = await fetch(`${this.apiUrl}/api/chat/clear`, {
         method: "POST",
       });
       if (resp.ok) {
