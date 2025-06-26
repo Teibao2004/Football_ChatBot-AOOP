@@ -20,9 +20,9 @@ app = Flask(__name__, static_folder='../frontend', template_folder='../frontend'
 CORS(app)
 
 # Inicializar gestores
-api_key = os.getenv('RAPIDAPI_KEY')
+api_key = os.getenv('APISPORTS_KEY')
 if not api_key:
-    print("❌ RAPIDAPI_KEY não encontrada no arquivo .env")
+    print("❌ APISPORTS_KEY não encontrada no arquivo .env")
     exit(1)
 
 football_manager = FootballDataManager(api_key)
@@ -557,12 +557,17 @@ def search_team(team_name):
 def get_status():
     """Obter status da API"""
     try:
-        cache_stats = football_manager.get_cache_stats()
+        # Get requests made from DB (or memory)
+        requests_used = football_manager.requests_made
+        # Determine status
+        if requests_used >= 100:
+            status = 'offline'
+        else:
+            status = 'online'
         return jsonify({
-            'status': 'online',
-            'requests_used': football_manager.requests_made,
-            'requests_remaining': 100 - football_manager.requests_made,
-            'cache': cache_stats,
+            'status': status,
+            'requests_used': requests_used,
+            'requests_remaining': max(0, 100 - requests_used),
             'timestamp': datetime.now().isoformat()
         })
     except Exception as e:

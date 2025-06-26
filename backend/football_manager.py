@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 import os
 from typing import Dict, List, Optional
 from dotenv import load_dotenv
+import sqlite3
 
 # Configurar logging
 logger = logging.getLogger(__name__)
@@ -17,29 +18,32 @@ class FootballDataManager:
     
     def __init__(self, api_key: str = None):
         # Se não for fornecida uma API key, buscar do .env
-        self.api_key = api_key or os.getenv('RAPIDAPI_KEY')
+        self.api_key = api_key or os.getenv('APISPORTS_KEY')
         
         if not self.api_key:
-            raise ValueError("❌ API key não encontrada. Defina RAPIDAPI_KEY no arquivo .env ou passe como parâmetro.")
+            raise ValueError("❌ API key não encontrada. Defina APISPORTS_KEY no arquivo .env ou passe como parâmetro.")
         
         # URL correta para API-Sports (API-Football)
         self.base_url = "https://v3.football.api-sports.io"
         self.headers = {
             "x-apisports-key": self.api_key
         }
-        self.cache = {}
         self.requests_made = 0  # Reset para permitir mais testes
         self.last_request_time = None
         
         # Buscar configurações do .env
         self.cache_duration = int(os.getenv('CACHE_DURATION', 6))  # Default: 6 horas
         
+        # SQLite3 setup
+        self.db_path = os.path.join(os.path.dirname(__file__), 'api_cache.db')
+        self._init_db()
+        
         logger.info(f"FootballDataManager inicializado com API key: {self.api_key[:10]}...")
         
         # Ligas disponíveis com IDs corretos para API-Sports
         self.available_leagues = {
             'portugal': {'id': 94, 'name': 'Primeira Liga', 'country': 'Portugal', 'flag': '🇵🇹'},
-            'england': {'id': 39, 'name': 'Premier League', 'country': 'England', 'flag': '🏴󠁧󠁢󠁥󠁮󠁧󠁿'},
+            'england': {'id': 39, 'name': 'Premier League', 'country': 'England', 'flag': '🏴'},
             'spain': {'id': 140, 'name': 'La Liga', 'country': 'Spain', 'flag': '🇪🇸'},
             'germany': {'id': 78, 'name': 'Bundesliga', 'country': 'Germany', 'flag': '🇩🇪'},
             'italy': {'id': 135, 'name': 'Serie A', 'country': 'Italy', 'flag': '🇮🇹'},
@@ -120,73 +124,149 @@ class FootballDataManager:
             }
         }
         
+    def _init_db(self):
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS api_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                endpoint TEXT NOT NULL,
+                params TEXT,
+                response TEXT,
+                status_code INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        # Add a table for status if not exists
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS api_status (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                status TEXT NOT NULL
+            )
+        ''')
+        # Ensure a single row exists
+        c.execute('INSERT OR IGNORE INTO api_status (id, status) VALUES (1, "online")')
+        conn.commit()
+        conn.close()
+
+    def set_api_status(self, status: str):
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute('UPDATE api_status SET status = ? WHERE id = 1', (status,))
+        conn.commit()
+        conn.close()
+
+    def get_api_status(self) -> str:
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute('SELECT status FROM api_status WHERE id = 1')
+        row = c.fetchone()
+        conn.close()
+        return row[0] if row else 'online'
+
+    def _save_request_to_db(self, endpoint, params, response, status_code):
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute('''
+            INSERT INTO api_requests (endpoint, params, response, status_code)
+            VALUES (?, ?, ?, ?)
+        ''', (endpoint, json.dumps(params, sort_keys=True) if params else None, json.dumps(response) if response else None, status_code))
+        conn.commit()
+        conn.close()
+
     def _make_request(self, endpoint: str, params: Dict = None) -> Optional[Dict]:
         """
-        Faz request à API com rate limiting e cache
+        Faz request à API com rate limiting e salva cada request no SQLite3, usando cache de 1 hora.
+        Sempre verifica o banco de dados antes de fazer uma request externa.
         """
         logger.info(f"=== FAZENDO REQUEST: {endpoint} ===")
         logger.info(f"Parâmetros: {params}")
-        
+
+        # Checar cache no banco de dados (1 hora)
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        def serialize_params(params):
+            if params is None:
+                return None
+            if isinstance(params, str):
+                return params
+            return json.dumps(params, sort_keys=True)
+        params_json = serialize_params(params)
+        c.execute('''
+            SELECT response, created_at FROM api_requests
+            WHERE endpoint = ? AND params = ?
+            ORDER BY created_at DESC LIMIT 1
+        ''', (endpoint, params_json))
+        row = c.fetchone()
+        if row:
+            response_json, created_at = row
+            created_time = datetime.strptime(created_at, '%Y-%m-%d %H:%M:%S')
+            created_time += timedelta(hours=1)
+            
+           # log created_time and datetime.now() - created_time
+            logger.info(f"Cache encontrado para {endpoint} com tempo de criação: {created_time}")
+            logger.info(f"Tempo atual: {datetime.now()}")
+            logger.info(f"Diferença de tempo: {(datetime.now() - created_time).total_seconds()} segundos")
+            
+            # Se o cache ainda é válido, retorna imediatamente
+            if (datetime.now() - created_time).total_seconds() < 172800:  # 2d
+                logger.info(f"✅ Cache hit (SQLite) para {endpoint}")
+                conn.close()
+                return json.loads(response_json)
+            else:
+                # Expirado, remover
+                c.execute('''
+                    DELETE FROM api_requests WHERE endpoint = ? AND params = ?
+                ''', (endpoint, params_json))
+                conn.commit()
+        conn.close()
+
         # Rate limiting: máximo 30 requests por minuto
         if self.last_request_time:
             time_diff = time.time() - self.last_request_time
-            if time_diff < 2:  # Esperar 2 segundos entre requests
+            if time_diff < 2:
                 logger.info(f"Aguardando {2 - time_diff:.2f}s para rate limiting...")
                 time.sleep(2 - time_diff)
-        
-        # Verificar limite diário
         if self.requests_made >= 100:
             logger.error("❌ Limite diário de requests atingido (100/dia)")
             return None
-            
-        # Criar chave de cache
-        cache_key = f"{endpoint}_{json.dumps(params, sort_keys=True) if params else ''}"
-        
-        # Verificar cache
-        if cache_key in self.cache:
-            cache_data = self.cache[cache_key]
-            if datetime.now() < cache_data['expires']:
-                logger.info(f"✅ Cache hit para {endpoint}")
-                return cache_data['data']
-        
-        # Fazer request
         url = f"{self.base_url}/{endpoint}"
         try:
             logger.info(f"📡 Request {self.requests_made + 1}/100: {url}")
-            logger.info(f"Headers: {self.headers}")
-            
             response = requests.get(url, headers=self.headers, params=params, timeout=10)
             self.requests_made += 1
             self.last_request_time = time.time()
-            
-            logger.info(f"Status code: {response.status_code}")
-            logger.info(f"Response headers: {dict(response.headers)}")
-            
+            data = None
             if response.status_code == 200:
                 data = response.json()
-                logger.info(f"Response data keys: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
+                logger.warning(f"Response errors: {data.get('errors', 'Nenhum erro')}")
+                errors = data.get('errors', {})
+                if isinstance(errors, dict) and 'requests' in errors and 'limit' in errors['requests'].lower():
+                    self.requests_made = 100
+                    self.set_api_status('offline')
+                    conn = sqlite3.connect(self.db_path)
+                    c = conn.cursor()
+                    c.execute('''
+                        INSERT INTO api_requests (endpoint, params, response, status_code)
+                        VALUES (?, ?, ?, ?)
+                    ''', (endpoint, json.dumps(params, sort_keys=True) if params else None, json.dumps({'error': 'request_limit_reached'}), 429))
+                    conn.commit()
+                    conn.close()
                 
-                # Verificar se a resposta contém dados válidos
+                # logger.info(f"Response data keys: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
+                # Salvar no banco de dados apenas se resposta válida
                 if data.get('response') is not None:
-                    # Cache pela duração definida no .env
-                    self.cache[cache_key] = {
-                        'data': data,
-                        'expires': datetime.now() + timedelta(hours=self.cache_duration)
-                    }
+                    self._save_request_to_db(endpoint, params, data, response.status_code)
                     logger.info(f"✅ Request bem-sucedida para {endpoint}")
                     return data
                 else:
                     logger.warning(f"⚠️ Resposta vazia para {endpoint}")
                     logger.warning(f"Response content: {response.text[:200]}...")
                     return None
-            elif response.status_code == 429:
-                logger.error("❌ Rate limit atingido. Aguardando...")
-                time.sleep(60)  # Esperar 1 minuto
-                return self._make_request(endpoint, params)  # Tentar novamente
             else:
+    
                 logger.error(f"❌ Erro {response.status_code}: {response.text}")
                 return None
-                
         except requests.exceptions.Timeout:
             logger.error(f"❌ Timeout na request para {endpoint}")
             return None
@@ -441,19 +521,27 @@ class FootballDataManager:
         """
         Limpar cache
         """
-        self.cache.clear()
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute('DELETE FROM api_requests')
+        conn.commit()
+        conn.close()
         print("🗑️ Cache limpo!")
     
     def get_cache_stats(self) -> Dict:
         """
         Obter estatísticas do cache
         """
-        total_entries = len(self.cache)
-        expired_entries = 0
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute('SELECT COUNT(*) FROM api_requests')
+        total_entries = c.fetchone()[0]
+
+        # Corrigir bindings: usar f-string para inserir o valor diretamente
+        c.execute(f'SELECT COUNT(*) FROM api_requests WHERE created_at < datetime("now", "-{self.cache_duration} hours")')
+        expired_entries = c.fetchone()[0]
         
-        for entry in self.cache.values():
-            if datetime.now() > entry['expires']:
-                expired_entries += 1
+        conn.close()
         
         return {
             'total_entries': total_entries,
@@ -477,3 +565,16 @@ if __name__ == "__main__":
     
     # Testar estatísticas do cache
     print("Estatísticas do cache:", football_manager.get_cache_stats())
+    
+    # Testar status da API
+    print("Status da API:", football_manager.get_api_status())
+    
+    # Definir e testar status da API como offline
+    football_manager.set_api_status("offline")
+    print("Status da API após atualização:", football_manager.get_api_status())
+    
+    # Limpar cache
+    football_manager.clear_cache()
+    
+    # Estatísticas do cache após limpeza
+    print("Estatísticas do cache após limpeza:", football_manager.get_cache_stats())

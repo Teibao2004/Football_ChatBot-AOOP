@@ -17,38 +17,51 @@ class FootballChatbot:
             'standings': [
                 r'classificação', r'tabela', r'posição', r'ranking', r'lugar',
                 r'quem está em primeiro', r'liderança', r'líder', r'topo',
-                r'standings', r'table', r'position'
+                r'standings', r'table', r'position',
+                r'league table', r'league standings', r'who is first', r'leader', 
+                r'top of the league', r'who is leading', r'who is on top', r'who is in first place'
             ],
             'team_stats': [
                 r'estatísticas', r'stats', r'números', r'desempenho',
                 r'como está', r'forma', r'rendimento', r'performance',
-                r'vitórias', r'derrotas', r'empates', r'golos'
+                r'vitórias', r'derrotas', r'empates', r'golos',
+                r'statistics', r'numbers', r'performance', r'form', r'wins', 
+                r'losses', r'draws', r'goals', r'record', r'results'
             ],
             'recent_matches': [
                 r'últimos jogos', r'jogos recentes', r'forma recente',
                 r'últimas partidas', r'últimos resultados', r'resultados recentes',
-                r'recent matches', r'last games'
+                r'recent matches', r'last games', r'latest matches', r'latest results', 
+                r'recent results', r'last matches', r'recent fixtures'
             ],
             'next_matches': [
                 r'próximos jogos', r'próximas partidas', r'calendário',
                 r'quando joga', r'próximo jogo', r'agenda',
-                r'next games', r'fixtures', r'schedule'
+                r'next games', r'fixtures', r'schedule', r'upcoming matches', r'upcoming games', 
+                r'next matches', r'when does.*play', r'when is.*next match', r'future games'
             ],
             'head_to_head': [
                 r'vs', r'contra', r'histórico', r'confrontos',
-                r'head to head', r'h2h', r'face a face'
+                r'head to head', r'h2h', r'face a face', r'head-to-head', r'comparison', 
+                r'compare', r'previous meetings', r'past meetings', r'previous encounters'
             ],
             'live_matches': [
                 r'ao vivo', r'live', r'agora', r'jogos hoje',
-                r'em direto', r'directo', r'tempo real'
+                r'em direto', r'directo', r'tempo real',
+                r'live matches', r'live games', r'now', r'currently playing', r'ongoing', 
+                r'live scores', r'live fixtures', r'games today', r'matches today'
             ],
             'top_scorers': [
                 r'melhor marcador', r'goleador', r'artilheiro',
-                r'melhores marcadores', r'top scorer', r'goals'
+                r'melhores marcadores', r'top scorer', r'goals',
+                r'top scorers', r'best scorer', r'goal scorer', r'leading scorer', 
+                r'who scored the most', r'who has most goals', r'who is top scorer'
             ],
             'league_info': [
                 r'sobre a liga', r'informações da liga', r'liga',
-                r'campeonato', r'torneio', r'competição'
+                r'campeonato', r'torneio', r'competição',
+                r'about the league', r'league info', r'competition', r'tournament', 
+                r'league information', r'league details'
             ]
         }
         
@@ -73,8 +86,12 @@ class FootballChatbot:
         patterns = [
             r'classifica[çc][aã]o (do|da|de) ([\w\s]+?)( na tabela|$)',
             r'estat[íi]sticas (do|da|de) ([\w\s]+)',
+            r'números (do|da|de) ([\w\s]+)',
             r'como est[aá] (o|a|os|as)? ([\w\s]+)',
             r'posição (do|da|de) ([\w\s]+)',
+            r'últimos jogos (do|da|de) ([\w\s]+)',
+            r'jogos recentes (do|da|de) ([\w\s]+)',
+            r'próximos jogos (do|da|de) ([\w\s]+)',
             r'([\w\s]+) vs ([\w\s]+)',
             r'([\w\s]+) contra ([\w\s]+)',
             r'([\w\s]+) x ([\w\s]+)',
@@ -97,11 +114,25 @@ class FootballChatbot:
         team_name = self._extract_team_name(text)
         if team_name:
             team = self.data_manager.identify_team_by_name(team_name)
+            # Se for lista, extrai o primeiro elemento
+            if isinstance(team, list) and len(team) > 0:
+                team = team[0]['team'] if 'team' in team[0] else team[0]
             if team and isinstance(team, dict):
+                # Procurar a que liga pertence nos popular_teams
+                for lid, teams in self.data_manager.popular_teams.items():
+                    for tkey, tdata in teams.items():
+                        if tdata['id'] == team['id']:
+                            team['league'] = lid
                 return team
         # Se não conseguiu extrair, tenta com o texto todo (fallback antigo)
         team = self.data_manager.identify_team_by_name(text)
+        if isinstance(team, list) and len(team) > 0:
+            team = team[0]['team'] if 'team' in team[0] else team[0]
         if team and isinstance(team, dict):
+            for lid, teams in self.data_manager.popular_teams.items():
+                for tkey, tdata in teams.items():
+                    if tdata['id'] == team['id']:
+                        team['league'] = lid
             return team
         return None
 
@@ -191,7 +222,7 @@ class FootballChatbot:
             league_id_val = league_info['id'] if isinstance(league_info, dict) and 'id' in league_info and league_info['id'] is not None else 94
             team_info = self._identify_team(question_lower, league_id_val)
             # Se não encontrou equipa e a pergunta é sobre equipa, devolve mensagem amigável
-            if question_type in ['standings', 'team_stats', 'recent_matches', 'next_matches', 'head_to_head'] and not team_info:
+            if question_type in ['team_stats', 'recent_matches', 'next_matches'] and not team_info:
                 return "🤔 Desculpa, não percebi a equipa. Escreve 'ajuda' para ver exemplos de perguntas."
             # Processar baseado no tipo
             if question_type == 'standings':
@@ -300,18 +331,18 @@ class FootballChatbot:
                 name_disp = name
             row = f"{pos}. {name_disp} - {points} pts ({played}j)"
             display_rows.append(row)
-        # Mostrar top 8, mas garantir que equipa pedida aparece
+        # Mostrar top 10, mas garantir que equipa pedida aparece
         highlight_row = None
         for row in display_rows:
             if '**' in row:
                 highlight_row = row
                 break
-        if highlight_row and highlight_row not in display_rows[:8]:
-            response += '\n'.join(display_rows[:7] + [highlight_row])
+        if highlight_row and highlight_row not in display_rows[:10]:
+            response += '\n'.join(display_rows[:9] + [highlight_row])
         else:
-            response += '\n'.join(display_rows[:8])
-        if len(table) > 8:
-            response += f"\n\n... e mais {len(table)-8} equipas"
+            response += '\n'.join(display_rows[:10])
+        if len(table) > 10:
+            response += f"\n\n... e mais {len(table)-10} equipas"
         return response
     
     def _handle_team_stats(self, question: str, team_info: Dict = None, league_info: Dict = None) -> str:
@@ -386,15 +417,17 @@ class FootballChatbot:
         """
         team_info = team_info or {}
         league_info = league_info or {}
+        print(f"[DEBUG] team_info: {team_info}")  # Debug
         if not team_info and not league_info:
             return "🤔 De que equipa ou liga queres saber os últimos jogos?"
         
         if team_info:
-            # Jogos de uma equipa específica
-            team_id = team_info['id']
+            team_id = team_info.get('id')
             team_name = team_info.get('name', 'equipa').title()
+            print(f"[DEBUG] team_id: {team_id}, team_name: {team_name}")  # Debug
             
             matches = self.data_manager.get_recent_matches(team_id, 5)
+            print(f"[DEBUG] matches: {matches}")  # Debug
             
             if not matches:
                 return f"😔 Não consegui obter os últimos jogos do {team_name}."
@@ -430,6 +463,7 @@ class FootballChatbot:
                     response += f"{result} **{date}:** {home_team} {home_goals}-{away_goals} {away_team}\n"
                     
                 except Exception as e:
+                    print(f"[DEBUG] Exception in match loop: {e}")  # Debug
                     continue
             
             return response
@@ -525,7 +559,11 @@ class FootballChatbot:
         for i, word in enumerate(words):
             team = self.data_manager.identify_team_by_name(word)
             if team and team not in teams_found:
-                teams_found.append(team)
+                # Se for lista, extrai o primeiro elemento
+                if isinstance(team, list) and len(team) > 0:
+                    team = team[0]['team'] if 'team' in team[0] else team[0]
+                if isinstance(team, dict):
+                    teams_found.append(team)
                 if len(teams_found) == 2:
                     break
         
@@ -542,8 +580,12 @@ class FootballChatbot:
                     
                     team1 = self.data_manager.identify_team_by_name(team1_name)
                     team2 = self.data_manager.identify_team_by_name(team2_name)
-                    
-                    if team1 and team2:
+                    # Se for lista, extrai o primeiro elemento
+                    if isinstance(team1, list) and len(team1) > 0:
+                        team1 = team1[0]['team'] if 'team' in team1[0] else team1[0]
+                    if isinstance(team2, list) and len(team2) > 0:
+                        team2 = team2[0]['team'] if 'team' in team2[0] else team2[0]
+                    if team1 and team2 and isinstance(team1, dict) and isinstance(team2, dict):
                         teams_found = [team1, team2]
                         break
         
@@ -564,7 +606,7 @@ class FootballChatbot:
         
         team1_wins = 0
         team2_wins = 0
-        draws = 0
+        draws = 0;
         
         # Analisar últimos 5 jogos
         recent_matches = []

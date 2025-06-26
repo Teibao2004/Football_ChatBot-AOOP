@@ -1,12 +1,9 @@
 # Environment
 .env
 venv/
-__pycache__/
+.venv
 *.pyc
-
-# Cache
-backend/cache/
-data/*.json
+frontend/node_modules/
 
 # IDE
 .vscode/

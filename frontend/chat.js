@@ -1,166 +1,198 @@
 // Football ChatBot - JavaScript File - VERSÃO ATUALIZADA PARA DADOS DA LIGA PORTUGAL
 class FootballChatBot {
-    constructor() {
-        this.apiUrl = 'http://localhost:5000';
-        this.requestCount = 0;
-        this.maxRequests = 100;
-        this.isLoading = false;
-        this.popularTeams = [];
-        this.quickStats = null;
-        this.isInitialized = false;
-        this.pendingRequests = new Set(); // Para evitar requests duplicados
-        this.retryAttempts = 0;
-        this.maxRetries = 3;
-        this.init();
+  constructor() {
+    this.apiUrl = "http://localhost:5000";
+    this.requestCount = 0;
+    this.maxRequests = 100;
+    this.isLoading = false;
+    this.popularTeams = [];
+    this.quickStats = null;
+    this.isInitialized = false;
+    this.pendingRequests = new Set(); // Para evitar requests duplicados
+    this.retryAttempts = 0;
+    this.maxRetries = 3;
+    this.init();
+  }
+
+  init() {
+    if (this.isInitialized) {
+      console.log("⚠️ ChatBot já foi inicializado");
+      return;
     }
 
-    init() {
-        if (this.isInitialized) {
-            console.log('⚠️ ChatBot já foi inicializado');
-            return;
-        }
+    console.log("🚀 Inicializando Football ChatBot...");
+    this.setupEventListeners();
 
-        console.log('🚀 Inicializando Football ChatBot...');
-        this.setupEventListeners();
-        
-        // Carregar sidebar para a liga selecionada
-        const leagueSelect = document.getElementById('leagueSelect');
-        if (leagueSelect) {
-            const leagueId = parseInt(leagueSelect.value);
-            setTimeout(() => this.updateSidebarForLeague(leagueId), 100);
+    // Carregar sidebar para a liga selecionada
+    const leagueSelect = document.getElementById("leagueSelect");
+    if (leagueSelect) {
+      const leagueId = parseInt(leagueSelect.value);
+      setTimeout(() => this.updateSidebarForLeague(leagueId), 100);
+    }
+    setTimeout(() => this.updateStatus(), 1000);
+
+    this.isInitialized = true;
+  }
+
+  setupEventListeners() {
+    // Send message on Enter key
+    const messageInput = document.getElementById("messageInput");
+    if (messageInput) {
+      messageInput.addEventListener("keypress", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          this.sendMessage();
         }
-        setTimeout(() => this.updateStatus(), 1000);
-        
-        this.isInitialized = true;
+      });
+
+      // Auto-resize input
+      messageInput.addEventListener("input", (e) => {
+        e.target.style.height = "auto";
+        e.target.style.height = e.target.scrollHeight + "px";
+      });
     }
 
-    setupEventListeners() {
-        // Send message on Enter key
-        const messageInput = document.getElementById('messageInput');
-        if (messageInput) {
-            messageInput.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    this.sendMessage();
-                }
-            });
-
-            // Auto-resize input
-            messageInput.addEventListener('input', (e) => {
-                e.target.style.height = 'auto';
-                e.target.style.height = (e.target.scrollHeight) + 'px';
-            });
-        }
-
-        // Send button click
-        const sendButton = document.getElementById('sendButton');
-        if (sendButton) {
-            sendButton.addEventListener('click', () => this.sendMessage());
-        }
-
-        // Liga dropdown change
-        const leagueSelect = document.getElementById('leagueSelect');
-        if (leagueSelect) {
-            leagueSelect.addEventListener('change', (e) => {
-                const leagueId = parseInt(e.target.value);
-                this.updateSidebarForLeague(leagueId);
-            });
-        }
+    // Send button click
+    const sendButton = document.getElementById("sendButton");
+    if (sendButton) {
+      sendButton.addEventListener("click", () => this.sendMessage());
     }
 
-    formatForm(form) {
-        if (!form) return 'N/A';
-        
-        // Converter forma em ícones visuais
-        return form.split('').map(letter => {
-            switch(letter.toUpperCase()) {
-                case 'W': return '🟢'; // Vitória
-                case 'L': return '🔴'; // Derrota  
-                case 'D': return '🟡'; // Empate
-                default: return '⚪';
-            }
-        }).join('');
+    // Liga dropdown change
+    const leagueSelect = document.getElementById("leagueSelect");
+    if (leagueSelect) {
+      leagueSelect.addEventListener("change", (e) => {
+        const leagueId = parseInt(e.target.value);
+        this.updateSidebarForLeague(leagueId);
+      });
     }
+  }
 
-    async updateSidebarForLeague(leagueId) {
-        // Atualizar quick stats
-        await this.loadQuickStats(leagueId);
-        // Atualizar equipas populares
-        await this.loadPopularTeamsByLeague(leagueId);
-        // Atualizar perguntas rápidas
-        this.updateQuickQuestions(leagueId);
+  formatForm(form) {
+    if (!form) return "N/A";
+
+    // Converter forma em ícones visuais
+    return form
+      .split("")
+      .map((letter) => {
+        switch (letter.toUpperCase()) {
+          case "W":
+            return "🟢"; // Vitória
+          case "L":
+            return "🔴"; // Derrota
+          case "D":
+            return "🟡"; // Empate
+          default:
+            return "⚪";
+        }
+      })
+      .join("");
+  }
+
+  async updateSidebarForLeague(leagueId) {
+    // Atualizar quick stats
+    await this.loadQuickStats(leagueId);
+    // Atualizar equipas populares
+    await this.loadPopularTeamsByLeague(leagueId);
+    // Atualizar perguntas rápidas
+    this.updateQuickQuestions(leagueId);
+  }
+
+  async loadPopularTeamsByLeague(leagueId) {
+    const requestKey = `popular-teams-${leagueId}`;
+    if (this.pendingRequests.has(requestKey)) {
+      console.log("⚠️ Request para equipas populares já está pendente");
+      return;
     }
-
-    async loadPopularTeamsByLeague(leagueId) {
-        const requestKey = `popular-teams-${leagueId}`;
-        if (this.pendingRequests.has(requestKey)) {
-            console.log('⚠️ Request para equipas populares já está pendente');
-            return;
+    this.pendingRequests.add(requestKey);
+    const teamsContainer = document.querySelector(
+      ".popular-teams .team-buttons"
+    );
+    const teamsTitle = document.querySelector(".popular-teams h3");
+    if (teamsContainer)
+      teamsContainer.innerHTML =
+        '<div class="stats-loading"><i class="fas fa-spinner fa-spin"></i> Carregando...</div>';
+    try {
+      const response = await fetch(
+        `${this.apiUrl}/api/popular-teams?league=${leagueId}`
+      );
+      if (response.ok) {
+        const data = await response.json();
+        const teams = data.teams || {};
+        const teamSlugs = Object.keys(teams).slice(0, 5); // Apenas as 5 primeiras
+        if (teamsTitle) {
+          const leagueName = this.getLeagueNameById(leagueId);
+          teamsTitle.innerHTML = `<i class="fas fa-star"></i> Equipas Populares`;
         }
-        this.pendingRequests.add(requestKey);
-        const teamsContainer = document.querySelector('.popular-teams .team-buttons');
-        const teamsTitle = document.querySelector('.popular-teams h3');
-        if (teamsContainer) teamsContainer.innerHTML = '<div class="stats-loading"><i class="fas fa-spinner fa-spin"></i> Carregando...</div>';
-        try {
-            const response = await fetch(`${this.apiUrl}/api/popular-teams?league=${leagueId}`);
-            if (response.ok) {
-                const data = await response.json();
-                const teams = data.teams || {};
-                const teamSlugs = Object.keys(teams).slice(0, 5); // Apenas as 5 primeiras
-                if (teamsTitle) {
-                    const leagueName = this.getLeagueNameById(leagueId);
-                    teamsTitle.innerHTML = `<i class="fas fa-star"></i> Equipas Populares`;
-                }
-                if (teamsContainer) {
-                    teamsContainer.innerHTML = teamSlugs.map(slug => {
-                        const team = teams[slug];
-                        return `<button class="team-btn" onclick="askAboutTeam('${slug}')"><i class="fas fa-futbol"></i> ${this.capitalizeTeamName(slug)}</button>`;
-                    }).join('') || '<div style="color:#64748b">Sem equipas populares</div>';
-                }
-            } else {
-                if (teamsContainer) teamsContainer.innerHTML = '<div style="color:#ef4444">Erro ao carregar equipas</div>';
-            }
-        } catch (error) {
-            if (teamsContainer) teamsContainer.innerHTML = '<div style="color:#ef4444">Erro ao carregar equipas</div>';
-        } finally {
-            this.pendingRequests.delete(requestKey);
+        if (teamsContainer) {
+          teamsContainer.innerHTML =
+            teamSlugs
+              .map((slug) => {
+                const team = teams[slug];
+                return `<button class="team-btn" onclick="askAboutTeam('${slug}')"><i class="fas fa-futbol"></i> ${this.capitalizeTeamName(
+                  slug
+                )}</button>`;
+              })
+              .join("") ||
+            '<div style="color:#64748b">Sem equipas populares</div>';
         }
+      } else {
+        if (teamsContainer)
+          teamsContainer.innerHTML =
+            '<div style="color:#ef4444">Erro ao carregar equipas</div>';
+      }
+    } catch (error) {
+      if (teamsContainer)
+        teamsContainer.innerHTML =
+          '<div style="color:#ef4444">Erro ao carregar equipas</div>';
+    } finally {
+      this.pendingRequests.delete(requestKey);
     }
+  }
 
-    async loadQuickStats(leagueId = 94) {
-        const requestKey = `standings-${leagueId}`;
-        if (this.pendingRequests.has(requestKey)) {
-            console.log('⚠️ Request para standings já está pendente');
-            return;
-        }
-        this.pendingRequests.add(requestKey);
-        const statsLoading = document.getElementById('quickStatsLoading');
-        const statsContent = document.getElementById('quickStatsContent');
-        const statsTitle = document.querySelector('.quick-stats h3');
-        try {
-            if (statsLoading) {
-                statsLoading.style.display = 'block';
-                statsLoading.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Carregando...';
-            }
-            if (statsTitle) {
-                const leagueName = this.getLeagueNameById(leagueId);
-                statsTitle.innerHTML = `<i class="fas fa-chart-bar"></i> ${leagueName}`;
-            }
-            const response = await fetch(`${this.apiUrl}/api/standings/${leagueId}?season=2023`);
-            if (response.ok) {
-                const data = await response.json();
-                const standings = data.standings || [];
-                if (statsLoading) statsLoading.style.display = 'none';
-                if (statsContent) {
-                    if (standings && standings.length > 0) {
-                        const top3 = standings.slice(0, 3);
-                        const leader = standings[0];
-                        const bestAttack = standings.reduce((prev, current) => (prev.goals_for > current.goals_for) ? prev : current);
-                        const bestDefense = standings.reduce((prev, current) => (prev.goals_against < current.goals_against) ? prev : current);
-                        statsContent.innerHTML = `
+  async loadQuickStats(leagueId = 94) {
+    const requestKey = `standings-${leagueId}`;
+    if (this.pendingRequests.has(requestKey)) {
+      console.log("⚠️ Request para standings já está pendente");
+      return;
+    }
+    this.pendingRequests.add(requestKey);
+    const statsLoading = document.getElementById("quickStatsLoading");
+    const statsContent = document.getElementById("quickStatsContent");
+    const statsTitle = document.querySelector(".quick-stats h3");
+    try {
+      if (statsLoading) {
+        statsLoading.style.display = "block";
+        statsLoading.innerHTML =
+          '<i class="fas fa-spinner fa-spin"></i> Carregando...';
+      }
+      if (statsTitle) {
+        const leagueName = this.getLeagueNameById(leagueId);
+        statsTitle.innerHTML = `<i class="fas fa-chart-bar"></i> ${leagueName}`;
+      }
+      const response = await fetch(
+        `${this.apiUrl}/api/standings/${leagueId}?season=2023`
+      );
+      if (response.ok) {
+        const data = await response.json();
+        const standings = data.standings || [];
+        if (statsLoading) statsLoading.style.display = "none";
+        if (statsContent) {
+          if (standings && standings.length > 0) {
+            const top3 = standings.slice(0, 3);
+            const leader = standings[0];
+            const bestAttack = standings.reduce((prev, current) =>
+              prev.goals_for > current.goals_for ? prev : current
+            );
+            const bestDefense = standings.reduce((prev, current) =>
+              prev.goals_against < current.goals_against ? prev : current
+            );
+            statsContent.innerHTML = `
                             <div class="stat-section">
                                 <div class="stat-title">🏆 Top 3 Classificação</div>
-                                ${top3.map(team => `
+                                ${top3
+                                  .map(
+                                    (team) => `
                                     <div class="stat-item ranking-item">
                                         <div class="position-badge">${team.position}º</div>
                                         <div class="team-info">
@@ -168,58 +200,72 @@ class FootballChatBot {
                                             <div class="team-points">${team.points} pts</div>
                                         </div>
                                     </div>
-                                `).join('')}
+                                `
+                                  )
+                                  .join("")}
                             </div>
                             <div class="stat-section">
                                 <div class="stat-item">
                                     <div class="stat-label">🎯 Líder</div>
-                                    <div class="stat-value">${leader.team.name} (${leader.points} pts)</div>
+                                    <div class="stat-value">${
+                                      leader.team.name
+                                    } (${leader.points} pts)</div>
                                 </div>
                                 <div class="stat-item">
                                     <div class="stat-label">⚽ Melhor Ataque</div>
-                                    <div class="stat-value">${bestAttack.team.name} (${bestAttack.goals_for})</div>
+                                    <div class="stat-value">${
+                                      bestAttack.team.name
+                                    } (${bestAttack.goals_for})</div>
                                 </div>
                                 <div class="stat-item">
                                     <div class="stat-label">🛡️ Melhor Defesa</div>
-                                    <div class="stat-value">${bestDefense.team.name} (${bestDefense.goals_against})</div>
+                                    <div class="stat-value">${
+                                      bestDefense.team.name
+                                    } (${bestDefense.goals_against})</div>
                                 </div>
                                 <div class="stat-item">
                                     <div class="stat-label">🔥 Forma do Líder</div>
-                                    <div class="stat-value">${this.formatForm(leader.form)}</div>
+                                    <div class="stat-value">${this.formatForm(
+                                      leader.form
+                                    )}</div>
                                 </div>
                             </div>
                         `;
-                        statsContent.style.display = 'block';
-                    } else {
-                        statsContent.innerHTML = '<div style="color:#64748b; text-align:center; padding:1rem;">Sem dados de classificação para esta liga.</div>';
-                        statsContent.style.display = 'block';
-                    }
-                }
-                this.requestCount = data.requests_used || 0;
-                this.updateRequestCounter();
-                this.retryAttempts = 0;
-            } else {
-                const errorText = await response.text();
-                throw new Error(`Erro ${response.status}: ${errorText}`);
-            }
-        } catch (error) {
-            if (statsLoading) {
-                statsLoading.innerHTML = `<div style="color: #ef4444; text-align: center;"><i class="fas fa-exclamation-triangle"></i> Erro ao carregar classificação<br><small>Verifique a conexão com a API</small></div>`;
-            }
-            if (statsContent) {
-                statsContent.innerHTML = '<div style="color:#64748b; text-align:center; padding:1rem;">Sem dados de classificação para esta liga.</div>';
-                statsContent.style.display = 'block';
-            }
-        } finally {
-            this.pendingRequests.delete(requestKey);
+            statsContent.style.display = "block";
+          } else {
+            statsContent.innerHTML =
+              '<div style="color:#64748b; text-align:center; padding:1rem;">Sem dados de classificação para esta liga.</div>';
+            statsContent.style.display = "block";
+          }
         }
+        this.requestCount = data.requests_used || 0;
+        this.updateRequestCounter();
+        this.retryAttempts = 0;
+      } else {
+        const errorText = await response.text();
+        throw new Error(`Erro ${response.status}: ${errorText}`);
+      }
+    } catch (error) {
+      if (statsLoading) {
+        statsLoading.innerHTML = `<div style="color: #ef4444; text-align: center;"><i class="fas fa-exclamation-triangle"></i> Erro ao carregar classificação<br><small>Verifique a conexão com a API</small></div>`;
+      }
+      if (statsContent) {
+        statsContent.innerHTML =
+          '<div style="color:#64748b; text-align:center; padding:1rem;">Sem dados de classificação para esta liga.</div>';
+        statsContent.style.display = "block";
+      }
+    } finally {
+      this.pendingRequests.delete(requestKey);
     }
+  }
 
-    updateQuickQuestions(leagueId) {
-        const quickQuestions = document.querySelector('.quick-questions .question-buttons');
-        const leagueName = this.getLeagueNameById(leagueId);
-        if (quickQuestions) {
-            quickQuestions.innerHTML = `
+  updateQuickQuestions(leagueId) {
+    const quickQuestions = document.querySelector(
+      ".quick-questions .question-buttons"
+    );
+    const leagueName = this.getLeagueNameById(leagueId);
+    if (quickQuestions) {
+      quickQuestions.innerHTML = `
                 <button class="question-btn" onclick="askQuestion('Classificação da ${leagueName}')">
                     <i class="fas fa-trophy"></i> Classificação
                 </button>
@@ -230,344 +276,379 @@ class FootballChatBot {
                     <i class="fas fa-fire"></i> Clássico
                 </button>
             `;
-        }
     }
+  }
 
-    getLeagueNameById(leagueId) {
-        const leagueSelect = document.getElementById('leagueSelect');
-        if (leagueSelect) {
-            const option = leagueSelect.querySelector(`option[value="${leagueId}"]`);
-            if (option) {
-                return option.textContent.replace(/^\S+\s/, ''); // Remove emoji/flag
-            }
-        }
-        return 'Liga';
+  getLeagueNameById(leagueId) {
+    const leagueSelect = document.getElementById("leagueSelect");
+    if (leagueSelect) {
+      const option = leagueSelect.querySelector(`option[value="${leagueId}"]`);
+      if (option) {
+        return option.textContent.replace(/^\S+\s/, ""); // Remove emoji/flag
+      }
     }
+    return "Liga";
+  }
 
-    capitalizeTeamName(slug) {
-        return slug.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+  capitalizeTeamName(slug) {
+    return slug.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
+  }
+
+  async sendMessage() {
+    const messageInput = document.getElementById("messageInput");
+    const message = messageInput?.value.trim();
+    if (!message || this.isLoading) return;
+    if (this.requestCount >= this.maxRequests) {
+      this.showError(
+        "Limite de requests atingido. Tente novamente mais tarde."
+      );
+      return;
     }
-
-    async sendMessage() {
-        const messageInput = document.getElementById('messageInput');
-        const message = messageInput?.value.trim();
-        if (!message || this.isLoading) return;
-        if (this.requestCount >= this.maxRequests) {
-            this.showError('Limite de requests atingido. Tente novamente mais tarde.');
-            return;
-        }
-        // Clear input
-        messageInput.value = '';
-        messageInput.style.height = 'auto';
-        // Add user message to chat
-        this.addMessage(message, 'user');
-        // Show loading
-        this.setLoading(true);
-        try {
-            // Obter o league_id selecionado
-            const leagueSelect = document.getElementById('leagueSelect');
-            const league_id = leagueSelect ? parseInt(leagueSelect.value) : 94;
-            // Preparar o body com encoding explícito
-            const requestBody = { question: message, league_id };
-            const jsonString = JSON.stringify(requestBody);
-            // Send to API
-            const response = await fetch(`${this.apiUrl}/api/chat`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json; charset=utf-8',
-                    'Accept': 'application/json',
-                    'Accept-Charset': 'utf-8'
-                },
-                body: jsonString
-            });
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({ error: 'Erro desconhecido' }));
-                throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
-            }
-            const data = await response.json();
-            this.requestCount = data.requests_used || this.requestCount + 1;
-            this.updateRequestCounter();
-            this.addMessage(data.response, 'bot');
-        } catch (error) {
-            let errorMessage = 'Desculpe, ocorreu um erro. Tente novamente.';
-            if (error.message.includes('Failed to fetch')) {
-                errorMessage = 'Erro de conexão. Verifique se o servidor está a funcionar.';
-            } else if (error.message.includes('500')) {
-                errorMessage = 'Erro interno do servidor. A API externa pode estar indisponível.';
-            } else if (error.message) {
-                errorMessage = `Erro: ${error.message}`;
-            }
-            this.addMessage(errorMessage, 'bot', true);
-        } finally {
-            this.setLoading(false);
-        }
+    // Clear input
+    messageInput.value = "";
+    messageInput.style.height = "auto";
+    // Add user message to chat
+    this.addMessage(message, "user");
+    // Show loading
+    this.setLoading(true);
+    try {
+      // Obter o league_id selecionado
+      const leagueSelect = document.getElementById("leagueSelect");
+      const league_id = leagueSelect ? parseInt(leagueSelect.value) : 94;
+      // Preparar o body com encoding explícito
+      const requestBody = { question: message, league_id };
+      const jsonString = JSON.stringify(requestBody);
+      // Send to API
+      const response = await fetch(`${this.apiUrl}/api/chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          Accept: "application/json",
+          "Accept-Charset": "utf-8",
+        },
+        body: jsonString,
+      });
+      if (!response.ok) {
+        const errorData = await response
+          .json()
+          .catch(() => ({ error: "Erro desconhecido" }));
+        throw new Error(
+          errorData.error || `HTTP error! status: ${response.status}`
+        );
+      }
+      const data = await response.json();
+      this.requestCount = data.requests_used || this.requestCount + 1;
+      this.updateRequestCounter();
+      this.addMessage(data.response, "bot");
+    } catch (error) {
+      let errorMessage = "Desculpe, ocorreu um erro. Tente novamente.";
+      if (error.message.includes("Failed to fetch")) {
+        errorMessage =
+          "Erro de conexão. Verifique se o servidor está a funcionar.";
+      } else if (error.message.includes("500")) {
+        errorMessage =
+          "Erro interno do servidor. A API externa pode estar indisponível.";
+      } else if (error.message) {
+        errorMessage = `Erro: ${error.message}`;
+      }
+      this.addMessage(errorMessage, "bot", true);
+    } finally {
+      this.setLoading(false);
     }
+  }
 
-    addMessage(text, sender, isError = false) {
-        const chatMessages = document.getElementById('chatMessages');
-        if (!chatMessages) return;
+  addMessage(text, sender, isError = false) {
+    const chatMessages = document.getElementById("chatMessages");
+    if (!chatMessages) return;
 
-        const messageDiv = document.createElement('div');
-        messageDiv.className = `message ${sender}-message`;
-        
-        const currentTime = new Date().toLocaleTimeString('pt-PT', {
-            hour: '2-digit',
-            minute: '2-digit'
-        });
+    const messageDiv = document.createElement("div");
+    messageDiv.className = `message ${sender}-message`;
 
-        const avatar = sender === 'bot' ? 
-            '<i class="fas fa-robot"></i>' : 
-            '<i class="fas fa-user"></i>';
+    const currentTime = new Date().toLocaleTimeString("pt-PT", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
 
-        messageDiv.innerHTML = `
+    const avatar =
+      sender === "bot"
+        ? '<i class="fas fa-robot"></i>'
+        : '<i class="fas fa-user"></i>';
+
+    messageDiv.innerHTML = `
             <div class="message-avatar">
                 ${avatar}
             </div>
             <div class="message-content">
-                <div class="message-text ${isError ? 'error' : ''}">
+                <div class="message-text ${isError ? "error" : ""}">
                     ${this.formatMessage(text)}
                 </div>
                 <div class="message-time">${currentTime}</div>
             </div>
         `;
 
-        chatMessages.appendChild(messageDiv);
-        this.scrollToBottom();
+    chatMessages.appendChild(messageDiv);
+    this.scrollToBottom();
+  }
+
+  formatMessage(text) {
+    // Convert markdown-like formatting to HTML
+    let formatted = text
+      .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+      .replace(/\*(.*?)\*/g, "<em>$1</em>")
+      .replace(/\n\n/g, "</p><p>")
+      .replace(/\n/g, "<br>");
+
+    // Wrap in paragraphs if not already wrapped
+    if (!formatted.includes("<p>")) {
+      formatted = `<p>${formatted}</p>`;
     }
 
-    formatMessage(text) {
-        // Convert markdown-like formatting to HTML
-        let formatted = text
-            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-            .replace(/\*(.*?)\*/g, '<em>$1</em>')
-            .replace(/\n\n/g, '</p><p>')
-            .replace(/\n/g, '<br>');
+    return formatted;
+  }
 
-        // Wrap in paragraphs if not already wrapped
-        if (!formatted.includes('<p>')) {
-            formatted = `<p>${formatted}</p>`;
-        }
-
-        return formatted;
+  scrollToBottom() {
+    const chatMessages = document.getElementById("chatMessages");
+    if (chatMessages) {
+      setTimeout(() => {
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      }, 100);
     }
+  }
 
-    scrollToBottom() {
-        const chatMessages = document.getElementById('chatMessages');
-        if (chatMessages) {
-            setTimeout(() => {
-                chatMessages.scrollTop = chatMessages.scrollHeight;
-            }, 100);
-        }
+  setLoading(loading) {
+    this.isLoading = loading;
+    const sendButton = document.getElementById("sendButton");
+    const messageInput = document.getElementById("messageInput");
+    const modal = document.getElementById("loadingModal");
+
+    if (loading) {
+      if (sendButton) {
+        sendButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+        sendButton.disabled = true;
+      }
+      if (messageInput) messageInput.disabled = true;
+      if (modal) modal.classList.add("show");
+    } else {
+      if (sendButton) {
+        sendButton.innerHTML = '<i class="fas fa-paper-plane"></i>';
+        sendButton.disabled = false;
+      }
+      if (messageInput) messageInput.disabled = false;
+      if (modal) modal.classList.remove("show");
     }
+  }
 
-    setLoading(loading) {
-        this.isLoading = loading;
-        const sendButton = document.getElementById('sendButton');
-        const messageInput = document.getElementById('messageInput');
-        const modal = document.getElementById('loadingModal');
+  updateRequestCounter() {
+    const counter = document.getElementById("requestsCount");
+    if (counter) {
+      counter.textContent = `Requests: ${this.requestCount}/${this.maxRequests}`;
 
-        if (loading) {
-            if (sendButton) {
-                sendButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-                sendButton.disabled = true;
-            }
-            if (messageInput) messageInput.disabled = true;
-            if (modal) modal.classList.add('show');
-        } else {
-            if (sendButton) {
-                sendButton.innerHTML = '<i class="fas fa-paper-plane"></i>';
-                sendButton.disabled = false;
-            }
-            if (messageInput) messageInput.disabled = false;
-            if (modal) modal.classList.remove('show');
-        }
+      // Update color based on usage
+      if (this.requestCount >= this.maxRequests * 0.9) {
+        counter.style.color = "#ef4444"; // Red
+      } else if (this.requestCount >= this.maxRequests * 0.7) {
+        counter.style.color = "#f59e0b"; // Orange
+      } else {
+        counter.style.color = "#10b981"; // Green
+      }
     }
+  }
 
-    updateRequestCounter() {
-        const counter = document.getElementById('requestsCount');
-        if (counter) {
-            counter.textContent = `Requests: ${this.requestCount}/${this.maxRequests}`;
-            
-            // Update color based on usage
-            if (this.requestCount >= this.maxRequests * 0.9) {
-                counter.style.color = '#ef4444'; // Red
-            } else if (this.requestCount >= this.maxRequests * 0.7) {
-                counter.style.color = '#f59e0b'; // Orange
-            } else {
-                counter.style.color = '#10b981'; // Green
-            }
-        }
-    }
+  async updateStatus() {
+    const requestKey = "status";
+    if (this.pendingRequests.has(requestKey)) return;
 
-    async updateStatus() {
-        const requestKey = 'status';
-        if (this.pendingRequests.has(requestKey)) return;
-        
-        this.pendingRequests.add(requestKey);
-        
-        try {
-            console.log('📡 Verificando status da API...');
-            const response = await fetch(`${this.apiUrl}/api/status`);
-            if (response.ok) {
-                const data = await response.json();
-                this.requestCount = data.requests_used || 0;
-                this.updateRequestCounter();
-                this.updateStatusIndicator(true);
-                console.log('✅ Status atualizado');
-            } else {
-                console.error('❌ Erro ao verificar status:', response.status);
-                this.updateStatusIndicator(false);
-            }
-        } catch (error) {
-            console.error('❌ Erro ao verificar status:', error);
-            this.updateStatusIndicator(false);
-        } finally {
-            this.pendingRequests.delete(requestKey);
-        }
-    }
+    this.pendingRequests.add(requestKey);
 
-    updateStatusIndicator(online = true) {
-        const indicator = document.getElementById('statusIndicator');
-        if (indicator) {
-            indicator.className = `status-indicator ${online ? 'online' : 'offline'}`;
-        }
+    try {
+      console.log("📡 Verificando status da API...");
+      const response = await fetch(`${this.apiUrl}/api/status`);
+      if (response.ok) {
+        const data = await response.json();
+        this.requestCount = data.requests_used || 0;
+        this.updateRequestCounter();
+        this.updateStatusIndicator(data.status === "online");
+        console.log("✅ Status atualizado");
+      } else {
+        console.error("❌ Erro ao verificar status:", response.status);
+        this.updateStatusIndicator(false);
+      }
+    } catch (error) {
+      console.error("❌ Erro ao verificar status:", error);
+      this.updateStatusIndicator(false);
+    } finally {
+      this.pendingRequests.delete(requestKey);
     }
+  }
 
-    showError(message) {
-        this.addMessage(message, 'bot', true);
+  updateStatusIndicator(online = true) {
+    const indicator = document.getElementById("statusIndicator");
+    if (indicator) {
+      indicator.className = `status-indicator ${online ? "online" : "offline"}`;
     }
+  }
 
-    // Métodos para estatísticas específicas
-    async getTeamStats(teamId, teamName) {
-        try {
-            const response = await fetch(`${this.apiUrl}/api/team/${teamId}/stats?league=94&season=2023`);
-            if (response.ok) {
-                const data = await response.json();
-                return data.statistics;
-            }
-        } catch (error) {
-            console.error(`❌ Erro ao obter stats do ${teamName}:`, error);
-        }
-        return null;
-    }
+  showError(message) {
+    this.addMessage(message, "bot", true);
+  }
 
-    async getTeamMatches(teamId, teamName) {
-        try {
-            const response = await fetch(`${this.apiUrl}/api/team/${teamId}/matches?last=5`);
-            if (response.ok) {
-                const data = await response.json();
-                return data.matches;
-            }
-        } catch (error) {
-            console.error(`❌ Erro ao obter jogos do ${teamName}:`, error);
-        }
-        return null;
+  // Métodos para estatísticas específicas
+  async getTeamStats(teamId, teamName) {
+    try {
+      const response = await fetch(
+        `${this.apiUrl}/api/team/${teamId}/stats?league=94&season=2023`
+      );
+      if (response.ok) {
+        const data = await response.json();
+        return data.statistics;
+      }
+    } catch (error) {
+      console.error(`❌ Erro ao obter stats do ${teamName}:`, error);
     }
+    return null;
+  }
 
-    // Nova função para enviar mensagem com params
-    async sendMessageWithParams(message, league_id) {
-        if (!message || this.isLoading) return;
-        if (this.requestCount >= this.maxRequests) {
-            this.showError('Limite de requests atingido. Tente novamente mais tarde.');
-            return;
-        }
-        this.addMessage(message, 'user');
-        this.setLoading(true);
-        try {
-            const requestBody = { question: message, league_id };
-            const jsonString = JSON.stringify(requestBody);
-            const response = await fetch(`${this.apiUrl}/api/chat`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json; charset=utf-8',
-                    'Accept': 'application/json',
-                    'Accept-Charset': 'utf-8'
-                },
-                body: jsonString
-            });
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({ error: 'Erro desconhecido' }));
-                throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
-            }
-            const data = await response.json();
-            this.requestCount = data.requests_used || this.requestCount + 1;
-            this.updateRequestCounter();
-            this.addMessage(data.response, 'bot');
-        } catch (error) {
-            let errorMessage = 'Desculpe, ocorreu um erro. Tente novamente.';
-            if (error.message.includes('Failed to fetch')) {
-                errorMessage = 'Erro de conexão. Verifique se o servidor está a funcionar.';
-            } else if (error.message.includes('500')) {
-                errorMessage = 'Erro interno do servidor. A API externa pode estar indisponível.';
-            } else if (error.message) {
-                errorMessage = `Erro: ${error.message}`;
-            }
-            this.addMessage(errorMessage, 'bot', true);
-        } finally {
-            this.setLoading(false);
-        }
+  async getTeamMatches(teamId, teamName) {
+    try {
+      const response = await fetch(
+        `${this.apiUrl}/api/team/${teamId}/matches?last=5`
+      );
+      if (response.ok) {
+        const data = await response.json();
+        return data.matches;
+      }
+    } catch (error) {
+      console.error(`❌ Erro ao obter jogos do ${teamName}:`, error);
     }
+    return null;
+  }
+
+  // Nova função para enviar mensagem com params
+  async sendMessageWithParams(message, league_id) {
+    if (!message || this.isLoading) return;
+    if (this.requestCount >= this.maxRequests) {
+      this.showError(
+        "Limite de requests atingido. Tente novamente mais tarde."
+      );
+      return;
+    }
+    this.addMessage(message, "user");
+    this.setLoading(true);
+    try {
+      const requestBody = { question: message, league_id };
+      const jsonString = JSON.stringify(requestBody);
+      const response = await fetch(`${this.apiUrl}/api/chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          Accept: "application/json",
+          "Accept-Charset": "utf-8",
+        },
+        body: jsonString,
+      });
+      if (!response.ok) {
+        const errorData = await response
+          .json()
+          .catch(() => ({ error: "Erro desconhecido" }));
+        throw new Error(
+          errorData.error || `HTTP error! status: ${response.status}`
+        );
+      }
+      const data = await response.json();
+      this.requestCount = data.requests_used || this.requestCount + 1;
+      this.updateRequestCounter();
+      this.addMessage(data.response, "bot");
+    } catch (error) {
+      let errorMessage = "Desculpe, ocorreu um erro. Tente novamente.";
+      if (error.message.includes("Failed to fetch")) {
+        errorMessage =
+          "Erro de conexão. Verifique se o servidor está a funcionar.";
+      } else if (error.message.includes("500")) {
+        errorMessage =
+          "Erro interno do servidor. A API externa pode estar indisponível.";
+      } else if (error.message) {
+        errorMessage = `Erro: ${error.message}`;
+      }
+      this.addMessage(errorMessage, "bot", true);
+    } finally {
+      this.setLoading(false);
+    }
+  }
 }
 
 function askAboutTeam(teamSlug) {
-    const leagueSelect = document.getElementById('leagueSelect');
-    const league_id = leagueSelect ? parseInt(leagueSelect.value) : 94;
-    window.chatBot.sendMessageWithParams(`Como está o ${teamSlug}?`, league_id);
+  const leagueSelect = document.getElementById("leagueSelect");
+  const league_id = leagueSelect ? parseInt(leagueSelect.value) : 94;
+  window.chatBot.sendMessageWithParams(`Como está o ${teamSlug}?`, league_id);
 }
 
 function askQuestion(question) {
-    const leagueSelect = document.getElementById('leagueSelect');
-    const league_id = leagueSelect ? parseInt(leagueSelect.value) : 94;
-    window.chatBot.sendMessageWithParams(question, league_id);
+  const leagueSelect = document.getElementById("leagueSelect");
+  const league_id = leagueSelect ? parseInt(leagueSelect.value) : 94;
+  window.chatBot.sendMessageWithParams(question, league_id);
 }
 
 // Função para limpar cache
 function setupClearCacheButton() {
-    const btn = document.getElementById('clearCacheBtn');
-    if (!btn) return;
-    btn.onclick = async () => {
-        btn.disabled = true;
-        const original = btn.innerHTML;
-        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-        try {
-            const resp = await fetch('http://localhost:5000/api/cache/clear', { method: 'POST' });
-            if (resp.ok) {
-                btn.innerHTML = '<i class="fas fa-check-circle" style="color: #10b981"></i>';
-                setTimeout(() => { btn.innerHTML = original; btn.disabled = false; }, 1500);
-            } else {
-                btn.innerHTML = '<i class="fas fa-times-circle" style="color: #ef4444"></i>';
-                setTimeout(() => { btn.innerHTML = original; btn.disabled = false; }, 1500);
-            }
-        } catch {
-            btn.innerHTML = '<i class="fas fa-times-circle" style="color: #ef4444"></i>';
-            setTimeout(() => { btn.innerHTML = original; btn.disabled = false; }, 1500);
-        }
-    };
+  const btn = document.getElementById("clearCacheBtn");
+  if (!btn) return;
+  btn.onclick = async () => {
+    btn.disabled = true;
+    const original = btn.innerHTML;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    try {
+      const resp = await fetch("http://localhost:5000/api/cache/clear", {
+        method: "POST",
+      });
+      if (resp.ok) {
+        btn.innerHTML =
+          '<i class="fas fa-check-circle" style="color: #10b981"></i>';
+        setTimeout(() => {
+          btn.innerHTML = original;
+          btn.disabled = false;
+        }, 1500);
+      } else {
+        btn.innerHTML =
+          '<i class="fas fa-times-circle" style="color: #ef4444"></i>';
+        setTimeout(() => {
+          btn.innerHTML = original;
+          btn.disabled = false;
+        }, 1500);
+      }
+    } catch {
+      btn.innerHTML =
+        '<i class="fas fa-times-circle" style="color: #ef4444"></i>';
+      setTimeout(() => {
+        btn.innerHTML = original;
+        btn.disabled = false;
+      }, 1500);
+    }
+  };
 }
 
 // Initialize app - COM PROTEÇÃO CONTRA MÚLTIPLAS INICIALIZAÇÕES
 function initializeApp() {
-    if (window.chatBot && window.chatBot.isInitialized) {
-        console.log('⚠️ App já foi inicializado');
-        return;
+  if (window.chatBot && window.chatBot.isInitialized) {
+    console.log("⚠️ App já foi inicializado");
+    return;
+  }
+  // Create chatbot instance
+  window.chatBot = new FootballChatBot();
+  // Atualizar sidebar para a liga selecionada no arranque
+  const leagueSelect = document.getElementById("leagueSelect");
+  if (leagueSelect) {
+    const leagueId = parseInt(leagueSelect.value);
+    // window.chatBot.updateSidebarForLeague(leagueId); @TODO:
+  }
+  // Update status every 60 seconds
+  setInterval(() => {
+    if (window.chatBot) {
+      window.chatBot.updateStatus();
     }
-    // Create chatbot instance
-    window.chatBot = new FootballChatBot();
-    // Atualizar sidebar para a liga selecionada no arranque
-    const leagueSelect = document.getElementById('leagueSelect');
-    if (leagueSelect) {
-        const leagueId = parseInt(leagueSelect.value);
-        window.chatBot.updateSidebarForLeague(leagueId);
-    }
-    // Update status every 60 seconds
-    setInterval(() => {
-        if (window.chatBot) {
-            window.chatBot.updateStatus();
-        }
-    }, 60000);
-    console.log('🚀 Football ChatBot inicializado!');
-    console.log('🔗 API URL:', window.chatBot.apiUrl);
-    setupClearCacheButton();
+  }, 60000);
+  console.log("🚀 Football ChatBot inicializado!");
+  console.log("🔗 API URL:", window.chatBot.apiUrl);
+  setupClearCacheButton();
 }
 
 const additionalStyles = `
@@ -722,15 +803,15 @@ const additionalStyles = `
     }
 `;
 
-document.addEventListener('DOMContentLoaded', function() {
-    if (!document.getElementById('chatbot-styles')) {
-        const style = document.createElement('style');
-        style.id = 'chatbot-styles';
-        style.textContent = additionalStyles;
-        document.head.appendChild(style);
-    }
-    
-    initializeApp();
+document.addEventListener("DOMContentLoaded", function () {
+  if (!document.getElementById("chatbot-styles")) {
+    const style = document.createElement("style");
+    style.id = "chatbot-styles";
+    style.textContent = additionalStyles;
+    document.head.appendChild(style);
+  }
+
+  initializeApp();
 });
 
 window.FootballChatBot = FootballChatBot;
