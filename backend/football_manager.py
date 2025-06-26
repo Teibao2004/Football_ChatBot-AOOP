@@ -31,9 +31,6 @@ class FootballDataManager:
         self.requests_made = 0  # Reset para permitir mais testes
         self.last_request_time = None
         
-        # Buscar configurações do .env
-        self.cache_duration = int(os.getenv('CACHE_DURATION', 6))  # Default: 6 horas
-        
         # SQLite3 setup
         self.db_path = os.path.join(os.path.dirname(__file__), 'api_cache.db')
         self._init_db()
@@ -209,7 +206,7 @@ class FootballDataManager:
             logger.info(f"Diferença de tempo: {(datetime.now() - created_time).total_seconds()} segundos")
             
             # Se o cache ainda é válido, retorna imediatamente
-            if (datetime.now() - created_time).total_seconds() < 172800:  # 2d
+            if (datetime.now() - created_time).total_seconds() < 2592000:  # 30d
                 logger.info(f"✅ Cache hit (SQLite) para {endpoint}")
                 conn.close()
                 return json.loads(response_json)
@@ -538,7 +535,7 @@ class FootballDataManager:
         total_entries = c.fetchone()[0]
 
         # Corrigir bindings: usar f-string para inserir o valor diretamente
-        c.execute(f'SELECT COUNT(*) FROM api_requests WHERE created_at < datetime("now", "-{self.cache_duration} hours")')
+        c.execute(f'SELECT COUNT(*) FROM api_requests WHERE created_at < datetime("now")')
         expired_entries = c.fetchone()[0]
         
         conn.close()
