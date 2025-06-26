@@ -152,13 +152,11 @@ class FootballChatbot:
                 return self.process_question(f"Como está o {team}")
             # Clássico dinâmico
             if 'clássico' in question_lower or 'classico' in question_lower:
-                if league_id is not None:
-                    lid = int(league_id)
+                league_info = self._identify_league(question_lower)
+                if league_info and 'id' in league_info:
+                    lid = league_info['id']
                 else:
-                    league_info = self._identify_league(question_lower)
-                    lid = 94
-                    if isinstance(league_info, dict) and 'id' in league_info and league_info['id'] is not None:
-                        lid = league_info['id']
+                    lid = 94  # Default para Portugal
                 team1_slug, team2_slug = self.classicos.get(lid, ('benfica', 'porto'))
                 team1 = self.data_manager.identify_team_by_name(team1_slug)
                 team2 = self.data_manager.identify_team_by_name(team2_slug)
@@ -171,10 +169,8 @@ class FootballChatbot:
                 else:
                     team2 = None
                 if team1 and team2:
-                    # Buscar histórico completo (não só época 2023)
                     h2h = self.data_manager.get_head_to_head(team1['id'], team2['id'])
                     if h2h and len(h2h) > 0:
-                        # Mostrar o último jogo
                         match = h2h[0]
                         home = match['teams']['home']['name']
                         away = match['teams']['away']['name']
@@ -182,7 +178,6 @@ class FootballChatbot:
                         away_goals = match['goals']['away']
                         date = match['fixture']['date'][:10]
                         response = f"🔥 **Clássico {home} vs {away}** 🔥\n\nÚltimo jogo: {date}\n{home} {home_goals} - {away_goals} {away}\n"
-                        # Mostrar histórico se houver mais jogos
                         if len(h2h) > 1:
                             response += "\nHistórico recente:\n"
                             for m in h2h[:5]:
